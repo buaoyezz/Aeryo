@@ -144,7 +144,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.kotlinx.coroutines.android)
-    implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
     implementation(libs.compose.reorderable)
     implementation(libs.compose.icons.tabler)
