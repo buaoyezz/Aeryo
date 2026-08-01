@@ -28,3 +28,9 @@ file is present. Keep that file and the `signing/` directory private.
 
 This repository is prepared for the project owner. Add the project license
 before public redistribution.
+> [!RELEASESIGNING]
+> + Release signing is enabled automatically when a local `keystore. 
+> properties`
+> file is present. Use `keystore.properties.example` as a 
+> template, and keep
+> `keystore.properties` and the `signing/` directory private.
