@@ -37,13 +37,31 @@ fun SettingsScreen(
     currentAdBlockEnabled: Boolean,
     currentAddressBarAnimationEnabled: Boolean,
     currentDownloadMode: String,
+    currentThemeMode: String = UserPreferences.THEME_MODE_SYSTEM,
+    currentThemePalette: String = UserPreferences.THEME_PALETTE_TONAL_SPOT,
+    currentThemeKeyColor: Long = UserPreferences.DEFAULT_THEME_KEY_COLOR,
+    currentGlassEffectEnabled: Boolean = true,
+    currentBlurEffectEnabled: Boolean = true,
+    currentLogoVariant: String = UserPreferences.LOGO_VARIANT_AURORA,
     currentPrivacyBiometricEnabled: Boolean = false,
+    currentDoNotTrackEnabled: Boolean = true,
+    currentBlockThirdPartyCookies: Boolean = false,
+    currentClearOnExit: Boolean = false,
     appVersion: String,
     onSearchEngineChanged: (String) -> Unit,
     onAdBlockSettingsClicked: () -> Unit,
     onAddressBarAnimationToggled: (Boolean) -> Unit,
     onDownloadModeChanged: (String) -> Unit,
+    onThemeModeChanged: (String) -> Unit = {},
+    onThemePaletteChanged: (String) -> Unit = {},
+    onThemeKeyColorChanged: (Long) -> Unit = {},
+    onGlassEffectToggled: (Boolean) -> Unit = {},
+    onBlurEffectToggled: (Boolean) -> Unit = {},
+    onLogoVariantChanged: (String) -> Unit = {},
     onPrivacyBiometricToggled: (Boolean) -> Unit = {},
+    onDoNotTrackToggled: (Boolean) -> Unit = {},
+    onBlockThirdPartyCookiesToggled: (Boolean) -> Unit = {},
+    onClearOnExitToggled: (Boolean) -> Unit = {},
     onClearData: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit
@@ -64,6 +82,36 @@ fun SettingsScreen(
         "内置下载" to UserPreferences.DOWNLOAD_MODE_BUILT_IN
     )
     val selectedDownloadMode = downloadModes.indexOfFirst { it.second == currentDownloadMode }.coerceAtLeast(0)
+    val themeModes = listOf(
+        "跟随系统（Monet）" to UserPreferences.THEME_MODE_SYSTEM,
+        "浅色" to UserPreferences.THEME_MODE_LIGHT,
+        "深色" to UserPreferences.THEME_MODE_DARK,
+        "Monet 浅色" to UserPreferences.THEME_MODE_MONET_LIGHT,
+        "Monet 深色" to UserPreferences.THEME_MODE_MONET_DARK
+    )
+    val selectedThemeMode = themeModes.indexOfFirst { it.second == currentThemeMode }.coerceAtLeast(0)
+    val themePalettes = listOf(
+        "Tonal Spot" to UserPreferences.THEME_PALETTE_TONAL_SPOT,
+        "Vibrant" to UserPreferences.THEME_PALETTE_VIBRANT,
+        "Expressive" to UserPreferences.THEME_PALETTE_EXPRESSIVE,
+        "Neutral" to UserPreferences.THEME_PALETTE_NEUTRAL
+    )
+    val selectedThemePalette = themePalettes.indexOfFirst { it.second == currentThemePalette }.coerceAtLeast(0)
+    val themeKeyColors = listOf(
+        "蓝色" to UserPreferences.THEME_KEY_BLUE,
+        "绿色" to UserPreferences.THEME_KEY_GREEN,
+        "橙色" to UserPreferences.THEME_KEY_ORANGE,
+        "紫色" to UserPreferences.THEME_KEY_PURPLE,
+        "红色" to UserPreferences.THEME_KEY_RED
+    )
+    val selectedThemeKeyColor = themeKeyColors.indexOfFirst { it.second == currentThemeKeyColor }.coerceAtLeast(0)
+    val logoVariants = listOf(
+        "Aurora 蓝" to UserPreferences.LOGO_VARIANT_AURORA,
+        "Sunset 橙" to UserPreferences.LOGO_VARIANT_SUNSET,
+        "Mint 绿" to UserPreferences.LOGO_VARIANT_MINT,
+        "Monochrome 黑白" to UserPreferences.LOGO_VARIANT_MONO
+    )
+    val selectedLogoVariant = logoVariants.indexOfFirst { it.second == currentLogoVariant }.coerceAtLeast(0)
     val topAppBarScrollBehavior = MiuixScrollBehavior()
 
     Scaffold(
@@ -96,6 +144,56 @@ fun SettingsScreen(
                     bottom = padding.calculateBottomPadding()
                 )
             ) {
+                item(key = "theme") {
+                    SmallTitle(text = "主题与外观")
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                    ) {
+                        OverlayDropdownPreference(
+                            title = "主题模式",
+                            summary = "支持系统 Monet、浅色和深色主题",
+                            items = themeModes.map { it.first },
+                            selectedIndex = selectedThemeMode,
+                            onSelectedIndexChange = { onThemeModeChanged(themeModes[it].second) }
+                        )
+                        OverlayDropdownPreference(
+                            title = "Monet 调色板",
+                            summary = "选择重点色生成时使用的色彩风格",
+                            items = themePalettes.map { it.first },
+                            selectedIndex = selectedThemePalette,
+                            onSelectedIndexChange = { onThemePaletteChanged(themePalettes[it].second) }
+                        )
+                        OverlayDropdownPreference(
+                            title = "重点色",
+                            summary = "自定义 Miuix 的强调色，不影响系统取色开关",
+                            items = themeKeyColors.map { it.first },
+                            selectedIndex = selectedThemeKeyColor,
+                            onSelectedIndexChange = { onThemeKeyColorChanged(themeKeyColors[it].second) }
+                        )
+                        OverlayDropdownPreference(
+                            title = "应用 Logo",
+                            summary = "切换主页 Logo 的配色与造型",
+                            items = logoVariants.map { it.first },
+                            selectedIndex = selectedLogoVariant,
+                            onSelectedIndexChange = { onLogoVariantChanged(logoVariants[it].second) }
+                        )
+                        SwitchPreference(
+                            title = "液态玻璃",
+                            summary = "使用半透明层次与动态高光表现玻璃质感",
+                            checked = currentGlassEffectEnabled,
+                            onCheckedChange = onGlassEffectToggled
+                        )
+                        SwitchPreference(
+                            title = "毛玻璃模糊",
+                            summary = "在支持的设备上启用背景模糊效果",
+                            checked = currentBlurEffectEnabled,
+                            onCheckedChange = onBlurEffectToggled
+                        )
+                    }
+                }
+
                 item(key = "browser") {
                     SmallTitle(text = "浏览")
                     Card(
@@ -169,6 +267,24 @@ fun SettingsScreen(
                             summary = "切换至无痕模式或查看私密历史时验证设备安全身份",
                             checked = currentPrivacyBiometricEnabled,
                             onCheckedChange = onPrivacyBiometricToggled
+                        )
+                        SwitchPreference(
+                            title = "发送 Do Not Track",
+                            summary = "向支持的网站声明不希望被追踪",
+                            checked = currentDoNotTrackEnabled,
+                            onCheckedChange = onDoNotTrackToggled
+                        )
+                        SwitchPreference(
+                            title = "阻止第三方 Cookie",
+                            summary = "减少跨站追踪，部分登录可能需要关闭",
+                            checked = currentBlockThirdPartyCookies,
+                            onCheckedChange = onBlockThirdPartyCookiesToggled
+                        )
+                        SwitchPreference(
+                            title = "退出时清理网页数据",
+                            summary = "退出应用时清理 Cookie、缓存和 WebStorage",
+                            checked = currentClearOnExit,
+                            onCheckedChange = onClearOnExitToggled
                         )
                         ArrowPreference(
                             title = "清除浏览数据",

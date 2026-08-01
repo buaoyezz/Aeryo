@@ -5,8 +5,11 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface BookmarkDao {
-    @Query("SELECT * FROM bookmarks ORDER BY addedTime DESC")
+    @Query("SELECT * FROM bookmarks WHERE kind = 'bookmark' ORDER BY addedTime DESC")
     fun getAllBookmarks(): Flow<List<BookmarkEntity>>
+
+    @Query("SELECT * FROM bookmarks WHERE kind = 'favorite' ORDER BY addedTime DESC")
+    fun getAllFavorites(): Flow<List<BookmarkEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBookmark(bookmark: BookmarkEntity): Long
@@ -17,7 +20,7 @@ interface BookmarkDao {
     @Query("DELETE FROM bookmarks WHERE url = :url")
     suspend fun deleteBookmarkByUrl(url: String)
 
-    @Query("SELECT EXISTS(SELECT 1 FROM bookmarks WHERE url = :url)")
+    @Query("SELECT EXISTS(SELECT 1 FROM bookmarks WHERE url = :url AND kind = 'favorite')")
     fun isBookmarked(url: String): Flow<Boolean>
 
     // 历史记录操作

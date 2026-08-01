@@ -9,5 +9,11 @@ data class BookmarkEntity(
     val title: String,
     val url: String,
     val folder: String = "默认书签",
+    val kind: String = KIND_BOOKMARK,
     val addedTime: Long = System.currentTimeMillis()
-)
+) {
+    companion object {
+        const val KIND_BOOKMARK = "bookmark"
+        const val KIND_FAVORITE = "favorite"
+    }
+}

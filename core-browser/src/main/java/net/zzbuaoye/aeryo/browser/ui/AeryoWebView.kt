@@ -40,8 +40,11 @@ fun captureWebViewPreview(webView: WebView): Bitmap? {
 fun AeryoWebView(
     tab: WebTab,
     nightModeEnabled: Boolean = false,
+    doNotTrackEnabled: Boolean = true,
+    blockThirdPartyCookies: Boolean = false,
     onTabUpdated: (String, (WebTab) -> WebTab) -> Unit,
     onDownloadRequested: (url: String, userAgent: String, contentDisposition: String, mimetype: String, contentLength: Long) -> Unit,
+    onOpenExternalLink: (String) -> Boolean = { false },
     onCustomViewShow: (View, WebChromeClient.CustomViewCallback) -> Unit = { _, _ -> },
     onCustomViewHide: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -82,6 +85,7 @@ fun AeryoWebView(
                     clearHistory()
                     clearFormData()
                 }
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, !blockThirdPartyCookies)
 
                 setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
                     onDownloadRequested(url, userAgent, contentDisposition, mimetype, contentLength)
@@ -132,10 +136,28 @@ fun AeryoWebView(
                             webViewClient = object : WebViewClient() {
                                 override fun shouldOverrideUrlLoading(
                                     popup: WebView?,
+                                    url: String?
+                                ): Boolean {
+                                    val targetUrl = url ?: return false
+                                    if (isBrowserUrl(targetUrl)) {
+                                        sourceWebView.loadUrl(targetUrl)
+                                    } else {
+                                        onOpenExternalLink(targetUrl)
+                                    }
+                                    popup?.destroy()
+                                    return true
+                                }
+
+                                override fun shouldOverrideUrlLoading(
+                                    popup: WebView?,
                                     request: WebResourceRequest?
                                 ): Boolean {
                                     val targetUrl = request?.url?.toString() ?: return false
-                                    sourceWebView.loadUrl(targetUrl)
+                                    if (isBrowserUrl(targetUrl)) {
+                                        sourceWebView.loadUrl(targetUrl)
+                                    } else {
+                                        onOpenExternalLink(targetUrl)
+                                    }
                                     popup?.destroy()
                                     return true
                                 }
@@ -158,6 +180,30 @@ fun AeryoWebView(
                 }
 
                 webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        url: String?
+                    ): Boolean {
+                        val targetUrl = url ?: return false
+                        return if (isBrowserUrl(targetUrl)) {
+                            false
+                        } else {
+                            onOpenExternalLink(targetUrl)
+                        }
+                    }
+
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        val targetUrl = request?.url?.toString() ?: return false
+                        return if (isBrowserUrl(targetUrl)) {
+                            false
+                        } else {
+                            onOpenExternalLink(targetUrl)
+                        }
+                    }
+
                     override fun shouldInterceptRequest(
                         view: WebView?,
                         request: WebResourceRequest?
@@ -217,6 +263,12 @@ fun AeryoWebView(
                         view?.evaluateJavascript(AdBlockEngine.COSMETIC_CSS_SCRIPT, null)
                         if (view != null && !url.isNullOrEmpty()) {
                             net.zzbuaoye.aeryo.browser.script.UserScriptEngine.injectScriptsForUrl(view, url)
+                            if (doNotTrackEnabled) {
+                                view.evaluateJavascript(
+                                    "try { Object.defineProperty(navigator, 'doNotTrack', { get: function() { return '1'; } }); } catch (_) {}",
+                                    null
+                                )
+                            }
                         }
                         view?.postDelayed({
                             captureWebViewPreview(view)?.let { preview ->
@@ -283,7 +335,14 @@ fun AeryoWebView(
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     webView.settings.forceDark = if (nightModeEnabled) android.webkit.WebSettings.FORCE_DARK_ON else android.webkit.WebSettings.FORCE_DARK_OFF
                 }
+                CookieManager.getInstance().setAcceptThirdPartyCookies(webView, !blockThirdPartyCookies)
             }
         )
     }
+}
+
+private fun isBrowserUrl(url: String): Boolean {
+    val scheme = runCatching { android.net.Uri.parse(url).scheme?.lowercase() }.getOrNull()
+    return scheme == "http" || scheme == "https" || scheme == "aeryo" || scheme == "about" ||
+        scheme == "file" || scheme == "content" || scheme == "data" || scheme == "blob"
 }

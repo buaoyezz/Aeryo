@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [BookmarkEntity::class, HistoryEntity::class, PrivateHistoryEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class BookmarkDatabase : RoomDatabase() {
@@ -19,6 +19,14 @@ abstract class BookmarkDatabase : RoomDatabase() {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE history ADD COLUMN favicon BLOB")
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE bookmarks ADD COLUMN kind TEXT NOT NULL DEFAULT 'bookmark'"
+                )
             }
         }
 
@@ -32,7 +40,7 @@ abstract class BookmarkDatabase : RoomDatabase() {
                     BookmarkDatabase::class.java,
                     "aeryo_browser.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

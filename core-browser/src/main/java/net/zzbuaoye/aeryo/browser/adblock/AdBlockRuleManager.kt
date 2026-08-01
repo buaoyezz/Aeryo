@@ -13,8 +13,12 @@ object AdBlockRuleManager {
 
     // Holds the domains extracted from all enabled rules
     private var blockedDomains = HashSet<String>()
+    private var blockedUrlFragments = emptySet<String>()
+    private var allowedDomains = emptySet<String>()
 
     fun getBlockedDomains(): HashSet<String> = blockedDomains
+    fun getBlockedUrlFragments(): Set<String> = blockedUrlFragments
+    fun getAllowedDomains(): Set<String> = allowedDomains
 
     /**
      * Download a rule file from the given URL and save it with the given ID.
@@ -59,6 +63,8 @@ object AdBlockRuleManager {
     suspend fun loadEnabledRules(context: Context, enabledIds: List<String>) {
         withContext(Dispatchers.IO) {
             val newBlockedDomains = HashSet<String>()
+            val newBlockedFragments = HashSet<String>()
+            val newAllowedDomains = HashSet<String>()
             val dir = File(context.filesDir, RULE_DIR)
             
             if (dir.exists()) {
@@ -70,14 +76,23 @@ object AdBlockRuleManager {
                                 val trimmed = line.trim()
                                 // Skip comments and empty lines
                                 if (trimmed.isNotEmpty() && !trimmed.startsWith("!") && !trimmed.startsWith("[")) {
-                                    // Extremely simple parser for basic MVP: 
-                                    // Extract simple domain blocks like ||example.com^
-                                    if (trimmed.startsWith("||") && trimmed.endsWith("^")) {
-                                        val domain = trimmed.substring(2, trimmed.length - 1)
-                                        // Ignore paths for now, just block the domain root
-                                        if (!domain.contains("/")) {
-                                            newBlockedDomains.add(domain)
+                                    val withoutOptions = trimmed.substringBefore('$')
+                                    val isException = withoutOptions.startsWith("@@")
+                                    val rule = withoutOptions.removePrefix("@@")
+                                    if (rule.startsWith("||")) {
+                                        val hostAndPath = rule.removePrefix("||")
+                                        val host = hostAndPath.substringBeforeAny(listOf("/", "^", "*"))
+                                            .lowercase()
+                                        if (host.isNotBlank() && host.contains('.')) {
+                                            if (isException) newAllowedDomains.add(host)
+                                            else newBlockedDomains.add(host)
                                         }
+                                        val path = hostAndPath.substringAfter('/', "")
+                                        if (!isException && path.isNotBlank()) {
+                                            newBlockedFragments.add(path.replace("^", ""))
+                                        }
+                                    } else if (!isException && rule.length > 3 && !rule.contains(' ')) {
+                                        newBlockedFragments.add(rule.replace("*", ""))
                                     }
                                 }
                             }
@@ -87,6 +102,13 @@ object AdBlockRuleManager {
             }
             
             blockedDomains = newBlockedDomains
+            blockedUrlFragments = newBlockedFragments
+            allowedDomains = newAllowedDomains
         }
+    }
+
+    private fun String.substringBeforeAny(delimiters: List<String>): String {
+        val index = delimiters.mapNotNull { delimiter -> indexOf(delimiter).takeIf { it >= 0 } }.minOrNull()
+        return if (index == null) this else substring(0, index)
     }
 }

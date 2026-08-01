@@ -62,6 +62,7 @@ import top.yukonga.miuix.kmp.icon.extended.Download
 import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.icon.extended.Favorites
 import top.yukonga.miuix.kmp.icon.extended.Hide
+import top.yukonga.miuix.kmp.icon.extended.Link
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.RotateLeft
 import top.yukonga.miuix.kmp.icon.extended.ScreenMirroring
@@ -174,6 +175,8 @@ fun AeryoMenuBottomSheet(
     onNavigateToDownloads: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onSavePrivateHistory: () -> Unit = {},
+    onSaveBookmark: () -> Unit = {},
+    onSharePage: () -> Unit = {},
     onRefresh: () -> Unit,
     onFindInPage: () -> Unit,
 ) {
@@ -235,6 +238,14 @@ fun AeryoMenuBottomSheet(
                 MenuItem("bookmarks", "书签", MiuixIcons.Favorites, onNavigateToBookmarks),
                 MenuItem("history", "历史记录", HistoryOutlineIcon, onNavigateToHistory),
                 MenuItem("downloads", "下载", MiuixIcons.Download, onNavigateToDownloads),
+                MenuItem("save_bookmark", "添加书签", MiuixIcons.Favorites, {
+                    onSaveBookmark()
+                    onDismiss()
+                }),
+                MenuItem("share", "分享网页", MiuixIcons.Link, {
+                    onSharePage()
+                    onDismiss()
+                }),
                 MenuItem("refresh", "刷新", MiuixIcons.Refresh, onRefresh),
                 MenuItem("find", "页内查找", MiuixIcons.Search, onFindInPage),
                 MenuItem(
@@ -410,14 +421,28 @@ fun AeryoMenuBottomSheet(
                                         .longPressDraggableHandle(),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = slot,
-                                        color = MiuixTheme.colorScheme.primary,
-                                        fontSize = 10.sp,
+                                    Column(
                                         modifier = Modifier
                                             .align(Alignment.TopStart)
-                                            .padding(8.dp)
-                                    )
+                                            .padding(7.dp)
+                                    ) {
+                                        Text(
+                                            text = slot,
+                                            color = if (isDragging) {
+                                                MiuixTheme.colorScheme.onPrimaryContainer
+                                            } else {
+                                                MiuixTheme.colorScheme.primary
+                                            },
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "第 ${(index % MenuPageSize) / MenuColumnCount + 1} 排",
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            fontSize = 9.sp,
+                                            modifier = Modifier.padding(top = 1.dp)
+                                        )
+                                    }
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.Center
@@ -442,6 +467,12 @@ fun AeryoMenuBottomSheet(
                                             },
                                             fontSize = 12.sp,
                                             textAlign = TextAlign.Center
+                                        )
+                                        Text(
+                                            text = "长按拖动到此位置",
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            fontSize = 8.sp,
+                                            modifier = Modifier.padding(top = 2.dp)
                                         )
                                     }
                                 }

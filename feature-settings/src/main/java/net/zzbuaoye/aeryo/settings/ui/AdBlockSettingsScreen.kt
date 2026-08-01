@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import net.zzbuaoye.aeryo.settings.data.AdBlockSource
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -39,6 +40,7 @@ fun AdBlockSettingsScreen(
     onSourcesUpdated: (List<AdBlockSource>) -> Unit,
     onRequestUpdateAll: () -> Unit,
     onRequestDownload: (AdBlockSource) -> Unit,
+    blockedRequestCount: Long = 0L,
     onBack: () -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
@@ -84,6 +86,18 @@ fun AdBlockSettingsScreen(
                         summary = "强力过滤常见广告资源，支持规则订阅",
                         checked = currentAdBlockEnabled,
                         onCheckedChange = onAdBlockToggled
+                    )
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)
+                ) {
+                    BasicComponent(
+                        title = "拦截统计",
+                        summary = "本次运行已拦截 ${blockedRequestCount} 个请求 · 已启用 ${sources.count { it.isEnabled }} 个订阅源"
                     )
                 }
             }

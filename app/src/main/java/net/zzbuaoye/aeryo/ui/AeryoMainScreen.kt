@@ -1,9 +1,14 @@
 package net.zzbuaoye.aeryo.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
+import android.webkit.CookieManager
+import android.webkit.WebStorage
+import android.webkit.WebViewDatabase
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -36,12 +41,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,9 +65,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -71,8 +79,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import net.zzbuaoye.aeryo.R
 import net.zzbuaoye.aeryo.bookmarks.data.BookmarkDatabase
 import net.zzbuaoye.aeryo.bookmarks.data.BookmarkEntity
@@ -121,6 +133,10 @@ import top.yukonga.miuix.kmp.icon.extended.Search
 import top.yukonga.miuix.kmp.icon.extended.Sidebar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.ByteArrayOutputStream
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 
 @Composable
 fun AeryoMainScreen() {
@@ -156,6 +172,7 @@ fun AeryoMainScreen() {
     val activeTabIndex = tabState.activeTabIndex
     val currentTab = tabState.currentTab
     val bookmarks by dao.getAllBookmarks().collectAsState(initial = emptyList())
+    val favorites by dao.getAllFavorites().collectAsState(initial = emptyList())
     val history by dao.getAllHistory().collectAsState(initial = emptyList())
     val searchEngine by preferences.searchEngine.collectAsState(initial = UserPreferences.ENGINE_BING)
     val adBlockEnabled by preferences.adBlockEnabled.collectAsState(initial = true)
@@ -164,7 +181,16 @@ fun AeryoMainScreen() {
     val addressBarAnimationEnabled by preferences.addressBarAnimationEnabled.collectAsState(initial = true)
     val nightModeEnabled by preferences.nightModeEnabled.collectAsState(initial = false)
     val downloadMode by preferences.downloadMode.collectAsState(initial = UserPreferences.DOWNLOAD_MODE_SYSTEM)
+    val themeMode by preferences.themeMode.collectAsState(initial = UserPreferences.THEME_MODE_SYSTEM)
+    val themePalette by preferences.themePalette.collectAsState(initial = UserPreferences.THEME_PALETTE_TONAL_SPOT)
+    val themeKeyColor by preferences.themeKeyColor.collectAsState(initial = UserPreferences.DEFAULT_THEME_KEY_COLOR)
+    val glassEffectEnabled by preferences.glassEffectEnabled.collectAsState(initial = true)
+    val blurEffectEnabled by preferences.blurEffectEnabled.collectAsState(initial = true)
+    val logoVariant by preferences.logoVariant.collectAsState(initial = UserPreferences.LOGO_VARIANT_AURORA)
     val privacyBiometricEnabled by preferences.privacyBiometricEnabled.collectAsState(initial = false)
+    val doNotTrackEnabled by preferences.doNotTrackEnabled.collectAsState(initial = true)
+    val blockThirdPartyCookies by preferences.blockThirdPartyCookies.collectAsState(initial = false)
+    val clearOnExit by preferences.clearOnExit.collectAsState(initial = false)
     val privateHistory by dao.getAllPrivateHistory().collectAsState(initial = emptyList())
     val activity = context as? FragmentActivity
 
@@ -226,6 +252,23 @@ fun AeryoMainScreen() {
         }
     }
 
+    val saveCurrentTabToBookmark: () -> Unit = {
+        currentTab?.let { tab ->
+            if (tab.url.isNotBlank() && tab.url != "about:blank") {
+                scope.launch {
+                    dao.insertBookmark(
+                        BookmarkEntity(
+                            title = tab.title,
+                            url = tab.url,
+                            kind = BookmarkEntity.KIND_BOOKMARK
+                        )
+                    )
+                    android.widget.Toast.makeText(context, "已添加到书签", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     val navigateCurrentTab: (String) -> Unit = { input ->
         val target = processUrlInput(input, searchEngine)
         when (target) {
@@ -247,11 +290,9 @@ fun AeryoMainScreen() {
         }
     }
 
-    LaunchedEffect(currentTab?.url, addressExpanded) {
+    LaunchedEffect(currentTab?.url, currentTab?.title, searchEngine, addressExpanded) {
         if (!addressExpanded) {
-            addressText = currentTab?.url
-                ?.takeUnless { it == "about:blank" }
-                .orEmpty()
+            addressText = collapsedAddressText(currentTab)
         }
     }
 
@@ -307,6 +348,21 @@ fun AeryoMainScreen() {
     LaunchedEffect(adBlockSources) {
         val enabledIds = adBlockSources.filter { it.isEnabled }.map { it.id }
         AdBlockRuleManager.loadEnabledRules(context, enabledIds)
+    }
+
+    DisposableEffect(clearOnExit) {
+        onDispose {
+            if (clearOnExit) {
+                scope.launch {
+                    dao.clearHistory()
+                    dao.clearPrivateHistory()
+                    currentTab?.webView?.clearCache(true)
+                    CookieManager.getInstance().removeAllCookies(null)
+                    CookieManager.getInstance().flush()
+                    WebStorage.getInstance().deleteAllData()
+                }
+            }
+        }
     }
 
     LaunchedEffect(showDownloads) {
@@ -388,10 +444,18 @@ fun AeryoMainScreen() {
                         expanded = addressExpanded,
                         isBookmarked = rememberBookmarkState(dao, currentTab?.url.orEmpty()),
                         searchEngine = searchEngine,
+                        glassEffectEnabled = glassEffectEnabled,
+                        blurEffectEnabled = blurEffectEnabled,
                         onSearchEngineChange = { scope.launch { preferences.setSearchEngine(it) } },
                         onTextChange = { addressText = it },
                         onExpandedChange = { shouldExpand ->
                             if (!isAddressSubmitting || !shouldExpand) {
+                                if (shouldExpand) {
+                                    addressText = currentTab?.url
+                                        ?.takeUnless { it.isBlank() || it == "about:blank" }
+                                        .orEmpty()
+                                    addressInputGeneration += 1
+                                }
                                 addressExpanded = shouldExpand
                             }
                         },
@@ -426,7 +490,13 @@ fun AeryoMainScreen() {
                                         if (dao.isBookmarkedNow(tab.url)) {
                                             dao.deleteBookmarkByUrl(tab.url)
                                         } else {
-                                            dao.insertBookmark(BookmarkEntity(title = tab.title, url = tab.url))
+                                            dao.insertBookmark(
+                                                BookmarkEntity(
+                                                    title = tab.title,
+                                                    url = tab.url,
+                                                    kind = BookmarkEntity.KIND_FAVORITE
+                                                )
+                                            )
                                         }
                                     }
                                 }
@@ -527,6 +597,8 @@ fun AeryoMainScreen() {
                         currentTab == null -> Unit
                         isHome -> AeryoHomeScreen(
                             animationEnabled = addressBarAnimationEnabled,
+                            logoVariant = logoVariant,
+                            blurEffectEnabled = blurEffectEnabled,
                             searchEngine = searchEngine,
                             onSearchEngineChange = { scope.launch { preferences.setSearchEngine(it) } },
                             onSearchSubmit = navigateCurrentTab
@@ -534,6 +606,19 @@ fun AeryoMainScreen() {
                         else -> AeryoWebView(
                             tab = currentTab,
                             onTabUpdated = tabManager::updateTab,
+                            doNotTrackEnabled = doNotTrackEnabled,
+                            blockThirdPartyCookies = blockThirdPartyCookies,
+                            onOpenExternalLink = { url ->
+                                val opened = openExternalLink(context, url)
+                                if (!opened) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "没有可打开此链接的应用",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                opened
+                            },
                             onDownloadRequested = { url, userAgent, disposition, mimeType, contentLength ->
                                 val request = downloadManager.createRequest(
                                     url = url,
@@ -606,6 +691,19 @@ fun AeryoMainScreen() {
                         showSettings = true
                     },
                     onSavePrivateHistory = saveCurrentTabToPrivateHistory,
+                    onSaveBookmark = saveCurrentTabToBookmark,
+                    onSharePage = {
+                        currentTab?.let { tab ->
+                            if (tab.url.isNotBlank() && tab.url != "about:blank") {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TITLE, tab.title)
+                                    putExtra(Intent.EXTRA_TEXT, "${tab.title}\n${tab.url}")
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "分享网页"))
+                            }
+                        }
+                    },
                     onIncognitoChanged = { enabled ->
                         if (enabled) {
                             requestPrivacyAuth {
@@ -728,6 +826,7 @@ fun AeryoMainScreen() {
         ) {
             BookmarksScreen(
                 bookmarks = bookmarks,
+                favorites = favorites,
                 onUrlSelected = {
                     navigateCurrentTab(it)
                     showBookmarks = false
@@ -791,7 +890,16 @@ fun AeryoMainScreen() {
                 currentAdBlockEnabled = adBlockEnabled,
                 currentAddressBarAnimationEnabled = addressBarAnimationEnabled,
                 currentDownloadMode = downloadMode,
+                currentThemeMode = themeMode,
+                currentThemePalette = themePalette,
+                currentThemeKeyColor = themeKeyColor,
+                currentGlassEffectEnabled = glassEffectEnabled,
+                currentBlurEffectEnabled = blurEffectEnabled,
+                currentLogoVariant = logoVariant,
                 currentPrivacyBiometricEnabled = privacyBiometricEnabled,
+                currentDoNotTrackEnabled = doNotTrackEnabled,
+                currentBlockThirdPartyCookies = blockThirdPartyCookies,
+                currentClearOnExit = clearOnExit,
                 appVersion = appVersionName,
                 onSearchEngineChanged = { scope.launch { preferences.setSearchEngine(it) } },
                 onAdBlockSettingsClicked = { showAdBlockSettings = true },
@@ -801,16 +909,57 @@ fun AeryoMainScreen() {
                 onDownloadModeChanged = { mode ->
                     scope.launch { preferences.setDownloadMode(mode) }
                 },
+                onThemeModeChanged = { mode ->
+                    scope.launch { preferences.setThemeMode(mode) }
+                },
+                onThemePaletteChanged = { palette ->
+                    scope.launch { preferences.setThemePalette(palette) }
+                },
+                onThemeKeyColorChanged = { color ->
+                    scope.launch { preferences.setThemeKeyColor(color) }
+                },
+                onGlassEffectToggled = { enabled ->
+                    scope.launch { preferences.setGlassEffectEnabled(enabled) }
+                },
+                onBlurEffectToggled = { enabled ->
+                    scope.launch { preferences.setBlurEffectEnabled(enabled) }
+                },
+                onLogoVariantChanged = { variant ->
+                    scope.launch { preferences.setLogoVariant(variant) }
+                },
                 onPrivacyBiometricToggled = { enabled ->
                     requestPrivacyAuth {
                         scope.launch { preferences.setPrivacyBiometricEnabled(enabled) }
                     }
                 },
+                onDoNotTrackToggled = { enabled ->
+                    scope.launch { preferences.setDoNotTrackEnabled(enabled) }
+                },
+                onBlockThirdPartyCookiesToggled = { enabled ->
+                    scope.launch { preferences.setBlockThirdPartyCookies(enabled) }
+                },
+                onClearOnExitToggled = { enabled ->
+                    scope.launch { preferences.setClearOnExit(enabled) }
+                },
                 onClearData = {
                     scope.launch {
                         dao.clearHistory()
                         dao.clearPrivateHistory()
-                        currentTab?.webView?.clearCache(true)
+                        currentTab?.webView?.apply {
+                            clearHistory()
+                            clearFormData()
+                            clearCache(true)
+                        }
+                        CookieManager.getInstance().removeAllCookies(null)
+                        CookieManager.getInstance().flush()
+                        WebStorage.getInstance().deleteAllData()
+                        WebViewDatabase.getInstance(context).clearFormData()
+                        WebViewDatabase.getInstance(context).clearHttpAuthUsernamePassword()
+                        android.widget.Toast.makeText(
+                            context,
+                            "浏览数据已清除",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
                     }
                 },
                 onOpenAbout = { showAbout = true },
@@ -827,6 +976,7 @@ fun AeryoMainScreen() {
             AdBlockSettingsScreen(
                 currentAdBlockEnabled = adBlockEnabled,
                 sources = adBlockSources,
+                blockedRequestCount = AdBlockEngine.getBlockedRequestCount(),
                 onAdBlockToggled = { scope.launch { preferences.setAdBlockEnabled(it) } },
                 onSourcesUpdated = { scope.launch { preferences.setAdBlockSources(it) } },
                 onRequestUpdateAll = {
@@ -901,6 +1051,8 @@ private fun BrowserAddressBar(
     expanded: Boolean,
     isBookmarked: Boolean,
     searchEngine: String = UserPreferences.ENGINE_BING,
+    glassEffectEnabled: Boolean = true,
+    blurEffectEnabled: Boolean = true,
     onSearchEngineChange: (String) -> Unit = {},
     onTextChange: (String) -> Unit,
     onExpandedChange: (Boolean) -> Unit,
@@ -909,13 +1061,28 @@ private fun BrowserAddressBar(
     onSavePrivateHistory: () -> Unit = {}
 ) {
     val isIncognito = tab?.isIncognito == true
+    // Search result pages do not need a trailing favorite action; hiding it
+    // leaves the address bar stable after a query has loaded.
+    val isSearchResultPage = extractSearchQueryFromUrl(tab?.url.orEmpty()) != null
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(expanded, text, searchEngine) {
+        if (!expanded || !isSearchQueryInput(text)) {
+            suggestions = emptyList()
+        } else {
+            delay(220)
+            suggestions = fetchSearchSuggestions(searchEngine, text)
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                if (isIncognito) androidx.compose.ui.graphics.Color(0xFF181524)
-                else if (isHome) MiuixTheme.colorScheme.background
-                else MiuixTheme.colorScheme.surface
+                when {
+                    isIncognito -> androidx.compose.ui.graphics.Color(0xFF181524)
+                    isHome -> MiuixTheme.colorScheme.background
+                    glassEffectEnabled -> MiuixTheme.colorScheme.surface.copy(alpha = 0.86f)
+                    else -> MiuixTheme.colorScheme.surface
+                }
             )
             .statusBarsPadding()
     ) {
@@ -982,10 +1149,11 @@ private fun BrowserAddressBar(
                                         )
                                     }
                                 }
-                                IconButton(
-                                    onClick = onToggleBookmark,
-                                    modifier = Modifier.padding(end = 4.dp)
-                                ) {
+                                if (!isSearchResultPage) {
+                                    IconButton(
+                                        onClick = onToggleBookmark,
+                                        modifier = Modifier.padding(end = 4.dp)
+                                    ) {
                                     AnimatedContent(
                                         targetState = isBookmarked,
                                         transitionSpec = {
@@ -1016,6 +1184,7 @@ private fun BrowserAddressBar(
                                             }
                                         )
                                     }
+                                    }
                                 }
                             }
                         }
@@ -1024,6 +1193,16 @@ private fun BrowserAddressBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
+        if (expanded && suggestions.isNotEmpty()) {
+            SearchSuggestionPopup(
+                suggestions = suggestions,
+                onSuggestionSelected = { suggestion ->
+                    onTextChange(suggestion)
+                    onExpandedChange(false)
+                    onSubmit(suggestion)
+                }
             )
         }
         AnimatedVisibility(
@@ -1128,27 +1307,49 @@ private fun BrowserNavigationBar(
 @Composable
 private fun AeryoHomeScreen(
     animationEnabled: Boolean,
+    logoVariant: String = UserPreferences.LOGO_VARIANT_AURORA,
+    blurEffectEnabled: Boolean = true,
     searchEngine: String = UserPreferences.ENGINE_BING,
     onSearchEngineChange: (String) -> Unit = {},
     onSearchSubmit: (String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val logoBitmap = ImageBitmap.imageResource(R.drawable.aeryo_logo_smooth)
-    val logoPainter = remember(logoBitmap) {
-        BitmapPainter(
-            image = logoBitmap,
-            filterQuality = FilterQuality.High
-        )
+    LaunchedEffect(expanded, query, searchEngine) {
+        if (!expanded || !isSearchQueryInput(query)) {
+            suggestions = emptyList()
+        } else {
+            delay(220)
+            suggestions = fetchSearchSuggestions(searchEngine, query)
+        }
     }
+    val logoResource = when (logoVariant) {
+        UserPreferences.LOGO_VARIANT_SUNSET -> R.drawable.aeryo_logo_sunset
+        UserPreferences.LOGO_VARIANT_MINT -> R.drawable.aeryo_logo_mint
+        UserPreferences.LOGO_VARIANT_MONO -> R.drawable.aeryo_logo_mono
+        else -> R.drawable.aeryo_logo_aurora
+    }
+    // painterResource supports both the vector logo variants and bitmap fallbacks.
+    val logoPainter = painterResource(id = logoResource)
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .padding(horizontal = 28.dp)
     ) {
+        if (blurEffectEnabled) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(y = 36.dp)
+                    .size(260.dp)
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.16f))
+                    .blur(72.dp)
+            )
+        }
         val dismissSearch = {
             expanded = false
             keyboardController?.hide()
@@ -1233,6 +1434,22 @@ private fun AeryoHomeScreen(
                 .offset(y = searchOffsetY)
                 .fillMaxWidth()
         )
+        if (expanded && suggestions.isNotEmpty()) {
+            SearchSuggestionPopup(
+                suggestions = suggestions,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = searchOffsetY + 66.dp)
+                    .fillMaxWidth(),
+                onSuggestionSelected = { suggestion ->
+                    query = suggestion
+                    expanded = false
+                    keyboardController?.hide()
+                    focusManager.clearFocus(force = true)
+                    onSearchSubmit(suggestion)
+                }
+            )
+        }
         
         BackHandler(enabled = expanded) {
             dismissSearch()
@@ -1274,6 +1491,43 @@ private fun processUrlInput(input: String, searchEngine: String): String {
     return "$searchEngine${Uri.encode(value)}"
 }
 
+private fun collapsedAddressText(tab: WebTab?): String {
+    val url = tab?.url.orEmpty().takeUnless { it.isBlank() || it == "about:blank" } ?: return ""
+    extractSearchQueryFromUrl(url)?.takeIf(String::isNotBlank)?.let { return it }
+    tab?.title?.takeUnless {
+        it.isBlank() || it == "新标签页" || it == "主页" || it == url
+    }?.let { return it }
+    return url
+}
+
+private fun openExternalLink(context: android.content.Context, rawUrl: String): Boolean {
+    val intent = runCatching {
+        if (rawUrl.startsWith("intent:", ignoreCase = true)) {
+            Intent.parseUri(rawUrl, Intent.URI_INTENT_SCHEME)
+        } else {
+            Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl))
+        }
+    }.getOrNull() ?: return false
+
+    val launchIntent = if (intent.resolveActivity(context.packageManager) != null) {
+        intent
+    } else {
+        val fallbackUrl = intent.getStringExtra("browser_fallback_url") ?: return false
+        Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl))
+    }
+    return try {
+        if (context !is android.app.Activity) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(launchIntent)
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
+    }
+}
+
 private fun isSearchQueryInput(input: String): Boolean {
     val value = input.trim()
     return value.isNotEmpty() &&
@@ -1300,6 +1554,110 @@ private fun extractSearchQueryFromUrl(url: String): String? {
         else -> return null
     }
     return Uri.parse(url).getQueryParameter(param)
+}
+
+@Composable
+private fun SearchSuggestionPopup(
+    suggestions: List<String>,
+    onSuggestionSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.padding(horizontal = 4.dp),
+        insideMargin = androidx.compose.foundation.layout.PaddingValues(0.dp)
+    ) {
+        LazyColumn {
+            items(suggestions, key = { it }) { suggestion ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSuggestionSelected(suggestion) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.Search,
+                        contentDescription = null,
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = suggestion,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+private suspend fun fetchSearchSuggestions(searchEngine: String, query: String): List<String> {
+    val value = query.trim()
+    if (value.isEmpty()) return emptyList()
+    return withContext(Dispatchers.IO) {
+        val encoded = Uri.encode(value)
+        val endpoint = when {
+            searchEngine.contains("google", ignoreCase = true) ->
+                "https://suggestqueries.google.com/complete/search?client=firefox&q=$encoded"
+            searchEngine.contains("bing", ignoreCase = true) ->
+                "https://www.bing.com/osjson.aspx?query=$encoded"
+            searchEngine.contains("duckduckgo", ignoreCase = true) ->
+                "https://duckduckgo.com/ac/?q=$encoded"
+            searchEngine.contains("baidu", ignoreCase = true) ->
+                "https://suggestion.baidu.com/su?wd=$encoded"
+            searchEngine.contains("so.com", ignoreCase = true) ->
+                "https://sug.so.360.cn/suggest?word=$encoded"
+            searchEngine.contains("sogou", ignoreCase = true) ->
+                "https://sugg.sogou.com/sugg/associated/Query?key=$encoded"
+            else -> "https://suggestqueries.google.com/complete/search?client=firefox&q=$encoded"
+        }
+        runCatching {
+            val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 2_500
+                readTimeout = 2_500
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/json,text/javascript,*/*")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Android) AeryoBrowser")
+            }
+            try {
+                if (connection.responseCode !in 200..299) return@runCatching emptyList()
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                parseSuggestionResponse(body)
+            } finally {
+                connection.disconnect()
+            }
+        }.getOrDefault(emptyList()).distinct().filter { it.isNotBlank() }.take(6)
+    }
+}
+
+private fun parseSuggestionResponse(body: String): List<String> {
+    val start = body.indexOf('[')
+    val end = body.lastIndexOf(']')
+    val json = if (start >= 0 && end > start) body.substring(start, end + 1) else body
+    runCatching {
+        val root = JSONArray(json)
+        val nested = root.optJSONArray(1)
+        if (nested != null) {
+            return buildList {
+                for (index in 0 until nested.length()) {
+                    nested.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                }
+            }
+        }
+        val objectSuggestions = buildList {
+            for (index in 0 until root.length()) {
+                root.optJSONObject(index)?.optString("phrase")?.takeIf(String::isNotBlank)?.let(::add)
+            }
+        }
+        if (objectSuggestions.isNotEmpty()) return objectSuggestions
+    }
+    return Regex("[\\\"']([^\\\"']{2,})[\\\"']")
+        .findAll(body)
+        .map { it.groupValues[1] }
+        .filterNot { it == "q" || it == "p" }
+        .toList()
 }
 
 @Composable

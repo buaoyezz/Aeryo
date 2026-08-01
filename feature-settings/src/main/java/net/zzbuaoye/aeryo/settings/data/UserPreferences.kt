@@ -3,6 +3,7 @@ package net.zzbuaoye.aeryo.settings.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -21,9 +22,37 @@ class UserPreferences(private val context: Context) {
         val ADDRESS_BAR_ANIMATION_KEY = booleanPreferencesKey("address_bar_animation_enabled")
         val NIGHT_MODE_KEY = booleanPreferencesKey("night_mode_enabled")
         val DOWNLOAD_MODE_KEY = stringPreferencesKey("download_mode")
+        val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
+        val THEME_PALETTE_KEY = stringPreferencesKey("theme_palette")
+        val THEME_KEY_COLOR_KEY = longPreferencesKey("theme_key_color")
+        val GLASS_EFFECT_KEY = booleanPreferencesKey("glass_effect_enabled")
+        val BLUR_EFFECT_KEY = booleanPreferencesKey("blur_effect_enabled")
+        val LOGO_VARIANT_KEY = stringPreferencesKey("logo_variant")
+        val DO_NOT_TRACK_KEY = booleanPreferencesKey("do_not_track_enabled")
+        val BLOCK_THIRD_PARTY_COOKIES_KEY = booleanPreferencesKey("block_third_party_cookies")
+        val CLEAR_ON_EXIT_KEY = booleanPreferencesKey("clear_on_exit")
 
         const val DOWNLOAD_MODE_SYSTEM = "system"
         const val DOWNLOAD_MODE_BUILT_IN = "built_in"
+        const val THEME_MODE_SYSTEM = "monet_system"
+        const val THEME_MODE_LIGHT = "light"
+        const val THEME_MODE_DARK = "dark"
+        const val THEME_MODE_MONET_LIGHT = "monet_light"
+        const val THEME_MODE_MONET_DARK = "monet_dark"
+        const val THEME_PALETTE_TONAL_SPOT = "tonal_spot"
+        const val THEME_PALETTE_VIBRANT = "vibrant"
+        const val THEME_PALETTE_EXPRESSIVE = "expressive"
+        const val THEME_PALETTE_NEUTRAL = "neutral"
+        const val DEFAULT_THEME_KEY_COLOR = 0xFF3482FFL
+        const val THEME_KEY_BLUE = 0xFF3482FFL
+        const val THEME_KEY_GREEN = 0xFF2E9B69L
+        const val THEME_KEY_ORANGE = 0xFFE47732L
+        const val THEME_KEY_PURPLE = 0xFF8656C9L
+        const val THEME_KEY_RED = 0xFFD94C5CL
+        const val LOGO_VARIANT_AURORA = "aurora"
+        const val LOGO_VARIANT_SUNSET = "sunset"
+        const val LOGO_VARIANT_MINT = "mint"
+        const val LOGO_VARIANT_MONO = "mono"
         val PRIVACY_BIOMETRIC_KEY = booleanPreferencesKey("privacy_biometric_enabled")
 
         // search engine urls 
@@ -71,6 +100,42 @@ class UserPreferences(private val context: Context) {
 
     val downloadMode: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[DOWNLOAD_MODE_KEY] ?: DOWNLOAD_MODE_SYSTEM
+    }
+
+    val themeMode: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[THEME_MODE_KEY] ?: THEME_MODE_SYSTEM
+    }
+
+    val themePalette: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[THEME_PALETTE_KEY] ?: THEME_PALETTE_TONAL_SPOT
+    }
+
+    val themeKeyColor: Flow<Long> = context.dataStore.data.map { prefs ->
+        prefs[THEME_KEY_COLOR_KEY] ?: DEFAULT_THEME_KEY_COLOR
+    }
+
+    val glassEffectEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[GLASS_EFFECT_KEY] ?: true
+    }
+
+    val blurEffectEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[BLUR_EFFECT_KEY] ?: true
+    }
+
+    val logoVariant: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[LOGO_VARIANT_KEY] ?: LOGO_VARIANT_AURORA
+    }
+
+    val doNotTrackEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[DO_NOT_TRACK_KEY] ?: true
+    }
+
+    val blockThirdPartyCookies: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[BLOCK_THIRD_PARTY_COOKIES_KEY] ?: false
+    }
+
+    val clearOnExit: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[CLEAR_ON_EXIT_KEY] ?: false
     }
 
     val privacyBiometricEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -148,6 +213,70 @@ class UserPreferences(private val context: Context) {
                 else -> DOWNLOAD_MODE_SYSTEM
             }
         }
+    }
+
+    suspend fun setThemeMode(mode: String) {
+        context.dataStore.edit { prefs ->
+            prefs[THEME_MODE_KEY] = when (mode) {
+                THEME_MODE_LIGHT,
+                THEME_MODE_DARK,
+                THEME_MODE_MONET_LIGHT,
+                THEME_MODE_MONET_DARK -> mode
+                else -> THEME_MODE_SYSTEM
+            }
+        }
+    }
+
+    suspend fun setThemePalette(palette: String) {
+        context.dataStore.edit { prefs ->
+            prefs[THEME_PALETTE_KEY] = when (palette) {
+                THEME_PALETTE_VIBRANT,
+                THEME_PALETTE_EXPRESSIVE,
+                THEME_PALETTE_NEUTRAL -> palette
+                else -> THEME_PALETTE_TONAL_SPOT
+            }
+        }
+    }
+
+    suspend fun setThemeKeyColor(color: Long) {
+        context.dataStore.edit { prefs ->
+            prefs[THEME_KEY_COLOR_KEY] = color
+        }
+    }
+
+    suspend fun setGlassEffectEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[GLASS_EFFECT_KEY] = enabled
+        }
+    }
+
+    suspend fun setBlurEffectEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[BLUR_EFFECT_KEY] = enabled
+        }
+    }
+
+    suspend fun setLogoVariant(variant: String) {
+        context.dataStore.edit { prefs ->
+            prefs[LOGO_VARIANT_KEY] = when (variant) {
+                LOGO_VARIANT_SUNSET,
+                LOGO_VARIANT_MINT,
+                LOGO_VARIANT_MONO -> variant
+                else -> LOGO_VARIANT_AURORA
+            }
+        }
+    }
+
+    suspend fun setDoNotTrackEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs -> prefs[DO_NOT_TRACK_KEY] = enabled }
+    }
+
+    suspend fun setBlockThirdPartyCookies(enabled: Boolean) {
+        context.dataStore.edit { prefs -> prefs[BLOCK_THIRD_PARTY_COOKIES_KEY] = enabled }
+    }
+
+    suspend fun setClearOnExit(enabled: Boolean) {
+        context.dataStore.edit { prefs -> prefs[CLEAR_ON_EXIT_KEY] = enabled }
     }
 
     suspend fun setPrivacyBiometricEnabled(enabled: Boolean) {
