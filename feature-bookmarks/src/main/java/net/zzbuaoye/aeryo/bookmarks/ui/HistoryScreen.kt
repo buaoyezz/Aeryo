@@ -78,6 +78,7 @@ import java.util.Locale
 fun HistoryScreen(
     history: List<HistoryEntity>,
     privateHistory: List<PrivateHistoryEntity> = emptyList(),
+    isIncognito: Boolean = false,
     onUrlSelected: (String) -> Unit,
     onDeleteHistory: (HistoryEntity) -> Unit,
     onDeletePrivateHistory: (PrivateHistoryEntity) -> Unit = {},
@@ -86,15 +87,17 @@ fun HistoryScreen(
     onClearAllPrivateHistory: () -> Unit = {},
     onBack: () -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(if (isIncognito) 0 else 0) }
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     var showClearConfirmation by remember { mutableStateOf(false) }
     var actionItem by remember { mutableStateOf<HistoryEntity?>(null) }
     var actionPrivateItem by remember { mutableStateOf<PrivateHistoryEntity?>(null) }
 
-    val activeHistoryList = remember(history, privateHistory, selectedTab) {
-        if (selectedTab == 0) history else privateHistory.map {
+    val activeTab = if (isIncognito) selectedTab else 0
+
+    val activeHistoryList = remember(history, privateHistory, activeTab) {
+        if (activeTab == 0) history else privateHistory.map {
             HistoryEntity(
                 id = it.id,
                 title = it.title,
@@ -123,7 +126,7 @@ fun HistoryScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = if (selectedTab == 1) "私密历史记录" else "历史记录",
+                    title = if (activeTab == 1) "私密历史记录" else "历史记录",
                     largeTitle = "浏览历史",
                     subtitle = if (query.isBlank()) {
                         "${activeHistoryList.size} 条记录"
@@ -143,60 +146,62 @@ fun HistoryScreen(
                         }
                     }
                 )
-                // Segment Bar (常规 / 私密历史)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MiuixTheme.colorScheme.surfaceContainer)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Box(
+                if (isIncognito) {
+                    // Segment Bar (常规 / 私密历史) - 仅在隐私模式下展示
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                if (selectedTab == 0) MiuixTheme.colorScheme.primaryContainer else MiuixTheme.colorScheme.surfaceContainer
-                            )
-                            .clickable { selectedTab = 0 },
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MiuixTheme.colorScheme.surfaceContainer)
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            text = "常规历史 (${history.size})",
-                            color = if (selectedTab == 0) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 14.sp
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                if (selectedTab == 1) MiuixTheme.colorScheme.primaryContainer else MiuixTheme.colorScheme.surfaceContainer
-                            )
-                            .clickable { selectedTab = 1 },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = MiuixIcons.Lock,
-                                contentDescription = null,
-                                tint = if (selectedTab == 1) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (selectedTab == 0) MiuixTheme.colorScheme.primaryContainer else MiuixTheme.colorScheme.surfaceContainer
+                                )
+                                .clickable { selectedTab = 0 },
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text(
-                                text = "私密历史 (${privateHistory.size})",
-                                color = if (selectedTab == 1) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
+                                text = "常规历史 (${history.size})",
+                                color = if (selectedTab == 0) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
                                 fontSize = 14.sp
                             )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (selectedTab == 1) MiuixTheme.colorScheme.primaryContainer else MiuixTheme.colorScheme.surfaceContainer
+                                )
+                                .clickable { selectedTab = 1 },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = MiuixIcons.Lock,
+                                    contentDescription = null,
+                                    tint = if (selectedTab == 1) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "私密历史 (${privateHistory.size})",
+                                    color = if (selectedTab == 1) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 14.sp
+                                )
+                            }
                         }
                     }
                 }

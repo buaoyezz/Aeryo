@@ -134,3 +134,8 @@ This project uses third-party libraries with their own licenses.
 <strong>Miuix</strong><br>
 Licensed under the Apache License 2.0.
 </p>
+
+<p align="center">
+<strong>Tabler Icons</strong><br>
+Licensed under the MIT License.
+</p>

@@ -128,3 +128,8 @@ Aeryo 使用 GNU General Public License v3.0 许可证。
 <strong>Miuix</strong><br>
 使用 Apache License 2.0 许可证。
 </p>
+
+<p align="center">
+<strong>Tabler Icons</strong><br>
+使用 MIT 许可证。
+</p>

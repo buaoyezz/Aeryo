@@ -3,6 +3,7 @@ package net.zzbuaoye.aeryo.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,10 +53,27 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyGridState
 
 import top.yukonga.miuix.kmp.anim.folmeSpring
+import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.Plus
+import compose.icons.tablericons.Bookmark
+import compose.icons.tablericons.History
+import compose.icons.tablericons.Download
+import compose.icons.tablericons.Share
+import compose.icons.tablericons.Refresh
+import compose.icons.tablericons.Search
+import compose.icons.tablericons.World
+import compose.icons.tablericons.EyeOff
+import compose.icons.tablericons.Lock
+import compose.icons.tablericons.DeviceDesktop
+import compose.icons.tablericons.ShieldCheck
+import compose.icons.tablericons.Moon
+import compose.icons.tablericons.Settings
 import top.yukonga.miuix.kmp.icon.extended.Add
 import top.yukonga.miuix.kmp.icon.extended.Blocklist
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
@@ -87,51 +106,7 @@ private fun menuSlot(index: Int): String {
     return "$page-$row-$position"
 }
 
-private val HistoryOutlineIcon: ImageVector by lazy {
-    ImageVector.Builder(
-        name = "HistoryOutline",
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f
-    ).apply {
-        path(
-            fill = null,
-            stroke = SolidColor(Color.Black),
-            strokeLineWidth = 1.8f,
-            strokeLineCap = StrokeCap.Round,
-            strokeLineJoin = StrokeJoin.Round
-        ) {
-            moveTo(3.05f, 13.0f)
-            curveTo(3.05f, 17.971f, 7.08f, 22.0f, 12.05f, 22.0f)
-            curveTo(17.02f, 22.0f, 21.05f, 17.971f, 21.05f, 13.0f)
-            curveTo(21.05f, 8.0294f, 17.02f, 4.0f, 12.05f, 4.0f)
-            curveTo(9.5165f, 4.0f, 7.2274f, 5.0468f, 5.6022f, 6.7214f)
-        }
-        path(
-            fill = null,
-            stroke = SolidColor(Color.Black),
-            strokeLineWidth = 1.8f,
-            strokeLineCap = StrokeCap.Round,
-            strokeLineJoin = StrokeJoin.Round
-        ) {
-            moveTo(3.05f, 4.0f)
-            verticalLineTo(7.1f)
-            horizontalLineTo(6.15f)
-        }
-        path(
-            fill = null,
-            stroke = SolidColor(Color.Black),
-            strokeLineWidth = 1.8f,
-            strokeLineCap = StrokeCap.Round,
-            strokeLineJoin = StrokeJoin.Round
-        ) {
-            moveTo(12.05f, 8.5f)
-            verticalLineTo(13.0f)
-            lineTo(15.05f, 16.0f)
-        }
-    }.build()
-}
+
 
 data class MenuItem(
     val id: String,
@@ -233,50 +208,50 @@ fun AeryoMenuBottomSheet(
                 onBack = { showingSearchEnginePicker = false }
             )
         } else {
-            val defaultItems = listOf(
-                MenuItem("new_tab", "新建标签", MiuixIcons.Add, onNewTab),
-                MenuItem("bookmarks", "书签", MiuixIcons.Favorites, onNavigateToBookmarks),
-                MenuItem("history", "历史记录", HistoryOutlineIcon, onNavigateToHistory),
-                MenuItem("downloads", "下载", MiuixIcons.Download, onNavigateToDownloads),
-                MenuItem("save_bookmark", "添加书签", MiuixIcons.Favorites, {
+            val defaultItems = listOfNotNull(
+                MenuItem("new_tab", "新建标签", TablerIcons.Plus, onNewTab),
+                MenuItem("bookmarks", "书签", TablerIcons.Bookmark, onNavigateToBookmarks),
+                MenuItem("history", "历史记录", TablerIcons.History, onNavigateToHistory),
+                MenuItem("downloads", "下载", TablerIcons.Download, onNavigateToDownloads),
+                MenuItem("save_bookmark", "添加书签", TablerIcons.Bookmark, {
                     onSaveBookmark()
                     onDismiss()
                 }),
-                MenuItem("share", "分享网页", MiuixIcons.Link, {
+                MenuItem("share", "分享网页", TablerIcons.Share, {
                     onSharePage()
                     onDismiss()
                 }),
-                MenuItem("refresh", "刷新", MiuixIcons.Refresh, onRefresh),
-                MenuItem("find", "页内查找", MiuixIcons.Search, onFindInPage),
+                MenuItem("refresh", "刷新", TablerIcons.Refresh, onRefresh),
+                MenuItem("find", "页内查找", TablerIcons.Search, onFindInPage),
                 MenuItem(
                     "re_search_engine",
                     "换引擎",
-                    MiuixIcons.ChevronForward,
+                    TablerIcons.World,
                     { showingSearchEnginePicker = true }
                 ),
                 MenuItem(
                     "incognito",
                     "无痕模式",
-                    MiuixIcons.Hide,
+                    TablerIcons.EyeOff,
                     {
                         localIsIncognito = !localIsIncognito
                         onIncognitoChanged(localIsIncognito)
                     },
                     localIsIncognito
                 ),
-                MenuItem(
+                if (localIsIncognito) MenuItem(
                     "save_private_history",
                     "保存至私密历史",
-                    MiuixIcons.Hide,
+                    TablerIcons.Lock,
                     {
                         onSavePrivateHistory()
                         onDismiss()
                     }
-                ),
+                ) else null,
                 MenuItem(
                     "desktop",
                     "桌面版",
-                    MiuixIcons.ScreenMirroring,
+                    TablerIcons.DeviceDesktop,
                     {
                         localIsDesktopMode = !localIsDesktopMode
                         onDesktopModeChanged(localIsDesktopMode)
@@ -286,7 +261,7 @@ fun AeryoMenuBottomSheet(
                 MenuItem(
                     "ad_block",
                     "广告拦截",
-                    MiuixIcons.Blocklist,
+                    TablerIcons.ShieldCheck,
                     {
                         localIsAdBlockEnabled = !localIsAdBlockEnabled
                         onAdBlockChanged(localIsAdBlockEnabled)
@@ -296,14 +271,14 @@ fun AeryoMenuBottomSheet(
                 MenuItem(
                     "night_mode",
                     "夜间模式",
-                    MiuixIcons.Theme,
+                    TablerIcons.Moon,
                     {
                         localIsNightModeEnabled = !localIsNightModeEnabled
                         onNightModeChanged(localIsNightModeEnabled)
                     },
                     localIsNightModeEnabled
                 ),
-                MenuItem("settings", "设置", MiuixIcons.Settings, onNavigateToSettings),
+                MenuItem("settings", "设置", TablerIcons.Settings, onNavigateToSettings),
             )
 
             val itemById = defaultItems.associateBy(MenuItem::id)
@@ -320,10 +295,6 @@ fun AeryoMenuBottomSheet(
                         add(if (bookmarkIndex >= 0) bookmarkIndex + 1 else size, "history")
                     }
                     if ("re_search_engine" !in this) {
-                        val findIndex = indexOf("find")
-                        add(if (findIndex >= 0) findIndex + 1 else 0, "re_search_engine")
-                    } else if (indexOf("re_search_engine") >= MenuPageSize) {
-                        remove("re_search_engine")
                         val findIndex = indexOf("find")
                         add(if (findIndex >= 0) findIndex + 1 else 0, "re_search_engine")
                     }
@@ -380,37 +351,68 @@ fun AeryoMenuBottomSheet(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "长按卡片拖动；编号为最终的 页-排-位置（如 1-2-3）",
+                            text = "长按并拖动图标调整位置，按 4×2 网格分页排列",
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                            fontSize = 12.5.sp,
+                            modifier = Modifier.padding(top = 2.dp)
                         )
+                        Row(
+                            modifier = Modifier
+                                .padding(top = 8.dp, bottom = 12.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.08f))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = MiuixIcons.Edit,
+                                contentDescription = null,
+                                tint = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "长按卡片即可自由拖拽重排",
+                                fontSize = 11.sp,
+                                color = MiuixTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
+
+                    val rowCount = (orderedItems.size + MenuColumnCount - 1) / MenuColumnCount
+                    val gridHeight = (rowCount * 96).dp.coerceAtMost(380.dp)
+
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(MenuColumnCount),
                         state = lazyGridState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(310.dp)
-                            .padding(horizontal = 20.dp),
+                            .height(gridHeight)
+                            .padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         itemsIndexed(orderedItems, key = { _, item -> item.id }) { index, item ->
                             ReorderableItem(reorderableState, key = item.id) { isDragging ->
-                                val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp)
+                                val elevation by animateDpAsState(if (isDragging) 10.dp else 0.dp)
                                 val scale by animateFloatAsState(if (isDragging) 1.06f else 1f)
-                                val slot = menuSlot(index)
+                                val page = index / MenuPageSize + 1
+                                val indexOnPage = index % MenuPageSize
+                                val row = indexOnPage / MenuColumnCount + 1
+                                val position = indexOnPage % MenuColumnCount + 1
+                                val slot = "$page-$row-$position"
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(100.dp)
+                                        .height(88.dp)
                                         .graphicsLayer {
                                             shadowElevation = elevation.toPx()
                                             scaleX = scale
                                             scaleY = scale
                                         }
-                                        .clip(RoundedCornerShape(12.dp))
+                                        .clip(RoundedCornerShape(14.dp))
                                         .background(
                                             if (isDragging) {
                                                 MiuixTheme.colorScheme.primaryContainer
@@ -418,32 +420,66 @@ fun AeryoMenuBottomSheet(
                                                 MiuixTheme.colorScheme.surfaceContainerHigh
                                             }
                                         )
+                                        .border(
+                                            BorderStroke(
+                                                width = if (isDragging) 1.5.dp else 1.dp,
+                                                color = if (isDragging) {
+                                                    MiuixTheme.colorScheme.primary
+                                                } else {
+                                                    MiuixTheme.colorScheme.outline.copy(alpha = 0.12f)
+                                                }
+                                            ),
+                                            shape = RoundedCornerShape(14.dp)
+                                        )
                                         .longPressDraggableHandle(),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Column(
+                                    Row(
                                         modifier = Modifier
-                                            .align(Alignment.TopStart)
-                                            .padding(7.dp)
+                                            .fillMaxWidth()
+                                            .align(Alignment.TopCenter)
+                                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(
+                                                    if (isDragging) {
+                                                        MiuixTheme.colorScheme.primary.copy(alpha = 0.25f)
+                                                    } else if (page == 1) {
+                                                        MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                    } else {
+                                                        MiuixTheme.colorScheme.secondary.copy(alpha = 0.12f)
+                                                    }
+                                                )
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = slot,
+                                                color = if (isDragging) {
+                                                    MiuixTheme.colorScheme.onPrimaryContainer
+                                                } else if (page == 1) {
+                                                    MiuixTheme.colorScheme.primary
+                                                } else {
+                                                    MiuixTheme.colorScheme.secondary
+                                                },
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
                                         Text(
-                                            text = slot,
-                                            color = if (isDragging) {
-                                                MiuixTheme.colorScheme.onPrimaryContainer
-                                            } else {
-                                                MiuixTheme.colorScheme.primary
-                                            },
-                                            fontSize = 11.sp,
+                                            text = "⋮⋮",
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.35f),
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold
                                         )
-                                        Text(
-                                            text = "第 ${(index % MenuPageSize) / MenuColumnCount + 1} 排",
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                            fontSize = 9.sp,
-                                            modifier = Modifier.padding(top = 1.dp)
-                                        )
                                     }
+
                                     Column(
+                                        modifier = Modifier.padding(top = 14.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.Center
                                     ) {
@@ -465,14 +501,10 @@ fun AeryoMenuBottomSheet(
                                             } else {
                                                 MiuixTheme.colorScheme.onSurface
                                             },
-                                            fontSize = 12.sp,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Text(
-                                            text = "长按拖动到此位置",
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                            fontSize = 8.sp,
-                                            modifier = Modifier.padding(top = 2.dp)
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1
                                         )
                                     }
                                 }
@@ -480,13 +512,24 @@ fun AeryoMenuBottomSheet(
                         }
                     }
                     
-                    TextButton(
-                        text = "完成",
-                        onClick = editItem.onClick,
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp)
                             .padding(top = 12.dp, bottom = 4.dp)
-                    )
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(MiuixTheme.colorScheme.primary)
+                            .clickable { editItem.onClick() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "完成",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MiuixTheme.colorScheme.onPrimary
+                        )
+                    }
                 } else {
                     HorizontalPager(
                         state = pagerState,

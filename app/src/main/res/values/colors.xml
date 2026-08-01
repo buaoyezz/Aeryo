@@ -2,4 +2,5 @@
 <resources>
     <color name="aeryo_icon_background">#FFFFFF</color>
     <color name="aeryo_splash_background">#F8F7FF</color>
+    <color name="aeryo_startup_dark_background">#101115</color>
 </resources>

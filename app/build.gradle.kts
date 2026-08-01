@@ -10,7 +10,7 @@ val aeryoVersion = providers.gradleProperty("aeryoVersion")
     .removePrefix("V")
 // Aeryo Channel
 val aeryoChannel = providers.gradleProperty("aeryoChannel")
-    .orElse("Alpha")
+    .orElse("")
     .get()
     .trim()
 // Aeryo Build Revision
@@ -147,4 +147,5 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
     implementation(libs.compose.reorderable)
+    implementation(libs.compose.icons.tabler)
 }

@@ -35,6 +35,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -99,7 +100,9 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.rememberAsyncImagePainter
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -211,6 +214,11 @@ fun AeryoMainScreen() {
     val addressBarAnimationEnabled by preferences.addressBarAnimationEnabled.collectAsState(initial = true)
     val nightModeEnabled by preferences.nightModeEnabled.collectAsState(initial = false)
     val downloadMode by preferences.downloadMode.collectAsState(initial = UserPreferences.DOWNLOAD_MODE_SYSTEM)
+    val tabViewMode by preferences.tabViewMode.collectAsState(initial = UserPreferences.TAB_VIEW_MODE_GRID)
+    val effectiveTabViewMode = when (tabViewMode) {
+        UserPreferences.TAB_VIEW_MODE_HALF -> UserPreferences.TAB_VIEW_MODE_HALF
+        else -> UserPreferences.TAB_VIEW_MODE_GRID
+    }
     val themeMode by preferences.themeMode.collectAsState(initial = UserPreferences.THEME_MODE_SYSTEM)
     val themePalette by preferences.themePalette.collectAsState(initial = UserPreferences.THEME_PALETTE_TONAL_SPOT)
     val themeKeyColor by preferences.themeKeyColor.collectAsState(initial = UserPreferences.DEFAULT_THEME_KEY_COLOR)
@@ -227,6 +235,14 @@ fun AeryoMainScreen() {
     val launcherIconVariant by preferences.launcherIconVariant.collectAsState(initial = "")
     val effectiveGlassEffectEnabled = glassEffectEnabled && supportsLiquidGlass
     val effectiveBlurEffectEnabled = blurEffectEnabled && supportsBackgroundBlur
+
+    LaunchedEffect(tabViewMode) {
+        if (tabViewMode != UserPreferences.TAB_VIEW_MODE_GRID &&
+            tabViewMode != UserPreferences.TAB_VIEW_MODE_HALF
+        ) {
+            preferences.setTabViewMode(UserPreferences.TAB_VIEW_MODE_GRID)
+        }
+    }
     val privacyBiometricEnabled by preferences.privacyBiometricEnabled.collectAsState(initial = false)
     val doNotTrackEnabled by preferences.doNotTrackEnabled.collectAsState(initial = true)
     val blockThirdPartyCookies by preferences.blockThirdPartyCookies.collectAsState(initial = false)
@@ -566,6 +582,7 @@ fun AeryoMainScreen() {
                     },
                     onTabs = {
                         addressExpanded = false
+                        showTabs = true
                         currentTab?.webView?.let { webView ->
                             webView.post {
                                 captureWebViewPreview(webView)?.let { preview ->
@@ -575,7 +592,6 @@ fun AeryoMainScreen() {
                                 }
                             }
                         }
-                        showTabs = true
                     },
                     onNewIncognitoTab = {
                         requestPrivacyAuth {
@@ -807,7 +823,7 @@ fun AeryoMainScreen() {
         }
 
         AnimatedVisibility(
-            visible = showTabs,
+            visible = showTabs && effectiveTabViewMode == UserPreferences.TAB_VIEW_MODE_GRID,
             enter = fullScreenEnterTransition(),
             exit = fullScreenExitTransition(),
             modifier = Modifier.fillMaxSize()
@@ -815,6 +831,10 @@ fun AeryoMainScreen() {
             TabSwitcherScreen(
                 tabs = tabs,
                 activeTabIndex = activeTabIndex,
+                tabViewMode = effectiveTabViewMode,
+                onTabViewModeChanged = { mode ->
+                    scope.launch { preferences.setTabViewMode(mode) }
+                },
                 onTabSelected = { index ->
                     val targetTab = tabs.getOrNull(index)
                     if (targetTab?.isIncognito == true) {
@@ -841,15 +861,105 @@ fun AeryoMainScreen() {
                 },
                 onCloseAllTabs = {
                     tabManager.closeAllTabs()
-                    showTabs = false
                 },
                 onCloseIncognitoTabs = {
                     tabManager.closeIncognitoTabs()
-                    showTabs = false
                     android.widget.Toast.makeText(context, "所有无痕痕迹与会话已安全抹去", android.widget.Toast.LENGTH_SHORT).show()
                 },
                 onDismiss = { showTabs = false }
             )
+        }
+
+        AnimatedVisibility(
+            visible = showTabs && effectiveTabViewMode == UserPreferences.TAB_VIEW_MODE_HALF,
+            enter = slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = folmeSpring(damping = 0.9f, response = 0.36f)
+            ) + fadeIn(animationSpec = tween(180)),
+            exit = slideOutVertically(
+                targetOffsetY = { it },
+                animationSpec = folmeSpring(damping = 1f, response = 0.3f)
+            ) + fadeOut(animationSpec = tween(140)),
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(1f)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(Color.Black.copy(alpha = 0.32f))
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { showTabs = false })
+                        }
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(
+                            RoundedCornerShape(
+                                topStart = 24.dp,
+                                topEnd = 24.dp,
+                                bottomStart = 0.dp,
+                                bottomEnd = 0.dp
+                            )
+                        )
+                        .background(MiuixTheme.colorScheme.surface)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 8.dp, bottom = 2.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f))
+                    )
+
+                    TabSwitcherBottomSheetContent(
+                        tabs = tabs,
+                        activeTabIndex = activeTabIndex,
+                        tabViewMode = effectiveTabViewMode,
+                        onTabViewModeChanged = { mode ->
+                            scope.launch { preferences.setTabViewMode(mode) }
+                        },
+                        onTabSelected = { index ->
+                            val targetTab = tabs.getOrNull(index)
+                            if (targetTab?.isIncognito == true) {
+                                requestPrivacyAuth {
+                                    tabManager.selectTab(index)
+                                    showTabs = false
+                                }
+                            } else {
+                                tabManager.selectTab(index)
+                                showTabs = false
+                            }
+                        },
+                        onTabClosed = tabManager::closeTab,
+                        onNewTab = { isIncognito ->
+                            if (isIncognito) {
+                                requestPrivacyAuth {
+                                    tabManager.createNewTab(isIncognito = true)
+                                    showTabs = false
+                                }
+                            } else {
+                                tabManager.createNewTab(isIncognito = false)
+                                showTabs = false
+                            }
+                        },
+                        onCloseAllTabs = {
+                            tabManager.closeAllTabs()
+                        },
+                        onCloseIncognitoTabs = {
+                            tabManager.closeIncognitoTabs()
+                            android.widget.Toast.makeText(context, "所有无痕痕迹与会话已安全抹去", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        onDismiss = { showTabs = false }
+                    )
+                }
+            }
         }
 
         AnimatedVisibility(

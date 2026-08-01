@@ -40,6 +40,10 @@ class UserPreferences(private val context: Context) {
         val DO_NOT_TRACK_KEY = booleanPreferencesKey("do_not_track_enabled")
         val BLOCK_THIRD_PARTY_COOKIES_KEY = booleanPreferencesKey("block_third_party_cookies")
         val CLEAR_ON_EXIT_KEY = booleanPreferencesKey("clear_on_exit")
+        val TAB_VIEW_MODE_KEY = stringPreferencesKey("tab_view_mode")
+
+        const val TAB_VIEW_MODE_GRID = "grid"
+        const val TAB_VIEW_MODE_HALF = "half_screen"
 
         const val DOWNLOAD_MODE_SYSTEM = "system"
         const val DOWNLOAD_MODE_BUILT_IN = "built_in"
@@ -119,6 +123,10 @@ class UserPreferences(private val context: Context) {
 
     val downloadMode: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[DOWNLOAD_MODE_KEY] ?: DOWNLOAD_MODE_SYSTEM
+    }
+
+    val tabViewMode: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[TAB_VIEW_MODE_KEY] ?: TAB_VIEW_MODE_GRID
     }
 
     val themeMode: Flow<String> = context.dataStore.data.map { prefs ->
@@ -252,6 +260,12 @@ class UserPreferences(private val context: Context) {
     suspend fun setAddressBarAnimationEnabled(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[ADDRESS_BAR_ANIMATION_KEY] = enabled
+        }
+    }
+
+    suspend fun setTabViewMode(mode: String) {
+        context.dataStore.edit { prefs ->
+            prefs[TAB_VIEW_MODE_KEY] = mode
         }
     }
 

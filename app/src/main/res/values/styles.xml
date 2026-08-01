@@ -5,4 +5,13 @@
         <item name="android:windowDisablePreview">true</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+
+    <style name="Theme.Aeryo.Dark" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">@color/aeryo_startup_dark_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
 </resources>

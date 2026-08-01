@@ -7,4 +7,15 @@
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
         <item name="android:windowSplashScreenAnimationDuration">0</item>
     </style>
+
+    <style name="Theme.Aeryo.Dark" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/aeryo_startup_dark_background</item>
+        <item name="android:windowSplashScreenBackground">@color/aeryo_startup_dark_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/aeryo_splash_blank</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="android:windowSplashScreenAnimationDuration">0</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
 </resources>

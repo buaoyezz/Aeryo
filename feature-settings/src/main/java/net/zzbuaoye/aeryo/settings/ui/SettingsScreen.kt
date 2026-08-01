@@ -41,6 +41,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.zzbuaoye.aeryo.settings.data.UserPreferences
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import top.yukonga.miuix.kmp.anim.folmeSpring
+import top.yukonga.miuix.kmp.utils.pressable
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.ColorPicker
 import top.yukonga.miuix.kmp.basic.Icon
@@ -96,6 +108,8 @@ fun SettingsScreen(
     onSearchEngineChanged: (String) -> Unit,
     onAdBlockSettingsClicked: () -> Unit,
     onAddressBarAnimationToggled: (Boolean) -> Unit,
+    currentTabViewMode: String = UserPreferences.TAB_VIEW_MODE_GRID,
+    onTabViewModeChanged: (String) -> Unit = {},
     onDownloadModeChanged: (String) -> Unit,
     onThemeModeChanged: (String) -> Unit = {},
     onThemePaletteChanged: (String) -> Unit = {},
@@ -151,18 +165,46 @@ fun SettingsScreen(
         containerColor = MiuixTheme.colorScheme.background
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .widthIn(max = 680.dp)
-                    .fillMaxWidth()
-                    .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
-                contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding(),
-                    bottom = padding.calculateBottomPadding() + 16.dp
-                )
-            ) {
-                when (page) {
+            AnimatedContent(
+                targetState = page,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    if (targetState.ordinal > initialState.ordinal) {
+                        (slideInHorizontally(
+                            animationSpec = folmeSpring(damping = 0.86f, response = 0.36f),
+                            initialOffsetX = { fullWidth -> fullWidth }
+                        ) + fadeIn(animationSpec = folmeSpring(damping = 0.86f, response = 0.36f))).togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = folmeSpring(damping = 0.95f, response = 0.32f),
+                                targetOffsetX = { fullWidth -> -fullWidth / 3 }
+                            ) + fadeOut(animationSpec = folmeSpring(damping = 0.95f, response = 0.32f))
+                        )
+                    } else {
+                        (slideInHorizontally(
+                            animationSpec = folmeSpring(damping = 0.86f, response = 0.36f),
+                            initialOffsetX = { fullWidth -> -fullWidth / 3 }
+                        ) + fadeIn(animationSpec = folmeSpring(damping = 0.86f, response = 0.36f))).togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = folmeSpring(damping = 0.95f, response = 0.32f),
+                                targetOffsetX = { fullWidth -> fullWidth }
+                            ) + fadeOut(animationSpec = folmeSpring(damping = 0.95f, response = 0.32f))
+                        )
+                    }
+                },
+                label = "SettingsPageTransition"
+            ) { targetPage ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+                    contentPadding = PaddingValues(
+                        top = padding.calculateTopPadding(),
+                        bottom = padding.calculateBottomPadding() + 16.dp
+                    )
+                ) {
+                    when (targetPage) {
                     SettingsPage.ROOT -> settingsRoot(
                         onAppearance = { page = SettingsPage.APPEARANCE },
                         onBrowser = { page = SettingsPage.BROWSER },
@@ -212,8 +254,10 @@ fun SettingsScreen(
                     SettingsPage.BROWSER -> browserSettings(
                         currentSearchEngine,
                         currentAddressBarAnimationEnabled,
+                        currentTabViewMode,
                         onSearchEngineChanged,
-                        onAddressBarAnimationToggled
+                        onAddressBarAnimationToggled,
+                        onTabViewModeChanged
                     )
 
                     SettingsPage.DOWNLOADS -> downloadSettings(
@@ -234,6 +278,7 @@ fun SettingsScreen(
                     )
                 }
             }
+        }
         }
     }
 }
@@ -279,9 +324,11 @@ private fun CategoryPreference(
     title: String,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     ArrowPreference(
         title = title,
-        onClick = onClick
+        onClick = onClick,
+        modifier = Modifier.pressable(interactionSource)
     )
 }
 
@@ -512,15 +559,29 @@ private fun AeryoLineMark(variant: String, strokeWidth: Float, customColor: Long
 private fun androidx.compose.foundation.lazy.LazyListScope.browserSettings(
     currentSearchEngine: String,
     currentAddressBarAnimationEnabled: Boolean,
+    currentTabViewMode: String,
     onSearchEngineChanged: (String) -> Unit,
-    onAddressBarAnimationToggled: (Boolean) -> Unit
+    onAddressBarAnimationToggled: (Boolean) -> Unit,
+    onTabViewModeChanged: (String) -> Unit
 ) {
     val engines = listOf("Bing" to UserPreferences.ENGINE_BING, "Google" to UserPreferences.ENGINE_GOOGLE, "Baidu" to UserPreferences.ENGINE_BAIDU, "DuckDuckGo" to UserPreferences.ENGINE_DUCKDUCKGO, "Yahoo" to UserPreferences.ENGINE_YAHOO, "Yandex" to UserPreferences.ENGINE_YANDEX, "360" to UserPreferences.ENGINE_360, "Sogou" to UserPreferences.ENGINE_SOGOU)
+    val tabModes = listOf("网格全屏卡片" to UserPreferences.TAB_VIEW_MODE_GRID, "半屏模式" to UserPreferences.TAB_VIEW_MODE_HALF)
     item("browser-general") {
         SmallTitle(text = "地址栏与搜索")
         SettingsGroup {
             OverlayDropdownPreference(title = "默认搜索引擎", items = engines.map { it.first }, selectedIndex = engines.indexOfFirst { it.second == currentSearchEngine }.coerceAtLeast(0), onSelectedIndexChange = { onSearchEngineChanged(engines[it].second) })
             SwitchPreference(title = "主页地址栏动画", checked = currentAddressBarAnimationEnabled, onCheckedChange = onAddressBarAnimationToggled)
+        }
+    }
+    item("browser-tabs") {
+        SmallTitle(text = "标签页切换器")
+        SettingsGroup {
+            OverlayDropdownPreference(
+                title = "标签页视图模式",
+                items = tabModes.map { it.first },
+                selectedIndex = tabModes.indexOfFirst { it.second == currentTabViewMode }.coerceAtLeast(0),
+                onSelectedIndexChange = { onTabViewModeChanged(tabModes[it].second) }
+            )
         }
     }
 }

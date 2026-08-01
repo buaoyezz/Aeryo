@@ -25,6 +25,9 @@ reconstructed_chunk*.kt
 recovered_chunk*.txt
 *_live.png
 *_live.xml
+qa-*.png
+qa-*.xml
+*.log
 aeryo-*.png
 aeryo-*.xml
 screenshot.png
