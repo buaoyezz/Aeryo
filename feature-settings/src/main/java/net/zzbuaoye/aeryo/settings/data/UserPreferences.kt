@@ -119,7 +119,7 @@ class UserPreferences(private val context: Context) {
     }
 
     val blurEffectEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[BLUR_EFFECT_KEY] ?: true
+        prefs[BLUR_EFFECT_KEY] ?: false
     }
 
     val logoVariant: Flow<String> = context.dataStore.data.map { prefs ->

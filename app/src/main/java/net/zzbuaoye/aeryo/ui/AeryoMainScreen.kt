@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +67,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -185,7 +187,7 @@ fun AeryoMainScreen() {
     val themePalette by preferences.themePalette.collectAsState(initial = UserPreferences.THEME_PALETTE_TONAL_SPOT)
     val themeKeyColor by preferences.themeKeyColor.collectAsState(initial = UserPreferences.DEFAULT_THEME_KEY_COLOR)
     val glassEffectEnabled by preferences.glassEffectEnabled.collectAsState(initial = true)
-    val blurEffectEnabled by preferences.blurEffectEnabled.collectAsState(initial = true)
+    val blurEffectEnabled by preferences.blurEffectEnabled.collectAsState(initial = false)
     val logoVariant by preferences.logoVariant.collectAsState(initial = UserPreferences.LOGO_VARIANT_AURORA)
     val privacyBiometricEnabled by preferences.privacyBiometricEnabled.collectAsState(initial = false)
     val doNotTrackEnabled by preferences.doNotTrackEnabled.collectAsState(initial = true)
@@ -1052,7 +1054,7 @@ private fun BrowserAddressBar(
     isBookmarked: Boolean,
     searchEngine: String = UserPreferences.ENGINE_BING,
     glassEffectEnabled: Boolean = true,
-    blurEffectEnabled: Boolean = true,
+    blurEffectEnabled: Boolean = false,
     onSearchEngineChange: (String) -> Unit = {},
     onTextChange: (String) -> Unit,
     onExpandedChange: (Boolean) -> Unit,
@@ -1308,7 +1310,7 @@ private fun BrowserNavigationBar(
 private fun AeryoHomeScreen(
     animationEnabled: Boolean,
     logoVariant: String = UserPreferences.LOGO_VARIANT_AURORA,
-    blurEffectEnabled: Boolean = true,
+    blurEffectEnabled: Boolean = false,
     searchEngine: String = UserPreferences.ENGINE_BING,
     onSearchEngineChange: (String) -> Unit = {},
     onSearchSubmit: (String) -> Unit
@@ -1344,10 +1346,13 @@ private fun AeryoHomeScreen(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .offset(y = 36.dp)
-                    .size(260.dp)
-                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.16f))
-                    .blur(72.dp)
+                    .offset(y = 8.dp)
+                    .size(176.dp)
+                    .blur(58.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                    .background(
+                        color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        shape = CircleShape
+                    )
             )
         }
         val dismissSearch = {
@@ -1395,7 +1400,11 @@ private fun AeryoHomeScreen(
         Image(
             painter = logoPainter,
             contentDescription = "Aeryo",
-            colorFilter = ColorFilter.tint(MiuixTheme.colorScheme.onBackground),
+            colorFilter = if (logoVariant == UserPreferences.LOGO_VARIANT_MONO) {
+                ColorFilter.tint(MiuixTheme.colorScheme.onBackground)
+            } else {
+                null
+            },
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .offset(y = centeredSearchY - 128.dp)

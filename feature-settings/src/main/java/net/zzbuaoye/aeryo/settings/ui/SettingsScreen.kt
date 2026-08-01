@@ -41,7 +41,7 @@ fun SettingsScreen(
     currentThemePalette: String = UserPreferences.THEME_PALETTE_TONAL_SPOT,
     currentThemeKeyColor: Long = UserPreferences.DEFAULT_THEME_KEY_COLOR,
     currentGlassEffectEnabled: Boolean = true,
-    currentBlurEffectEnabled: Boolean = true,
+    currentBlurEffectEnabled: Boolean = false,
     currentLogoVariant: String = UserPreferences.LOGO_VARIANT_AURORA,
     currentPrivacyBiometricEnabled: Boolean = false,
     currentDoNotTrackEnabled: Boolean = true,
