@@ -114,7 +114,7 @@ License
 </h2>
 
 <p align="center">
-<strong>GNU General Public License v3.0</strong>
+<strong><a href="./LICENSE">GNU General Public License v3.0</a></strong>
 </p>
 
 <p align="center">

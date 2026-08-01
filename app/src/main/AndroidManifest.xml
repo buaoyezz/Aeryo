@@ -31,14 +31,14 @@
 
     <application
         android:name=".AeryoApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Aeryo Browser"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Aeryo"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false">
         <meta-data
             android:name="net.zzbuaoye.aeryo.DISPLAY_VERSION"
             android:value="${aeryoDisplayVersion}" />

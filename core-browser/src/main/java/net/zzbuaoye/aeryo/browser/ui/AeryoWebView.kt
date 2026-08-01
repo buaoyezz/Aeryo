@@ -74,8 +74,13 @@ fun AeryoWebView(
                     setSupportZoom(true)
                     builtInZoomControls = true
                     displayZoomControls = false
-                    mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                    allowFileAccess = !tab.isIncognito
+                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
+                        allowFileAccessFromFileURLs = false
+                        allowUniversalAccessFromFileURLs = false
+                    }
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                         forceDark = if (nightModeEnabled) android.webkit.WebSettings.FORCE_DARK_ON else android.webkit.WebSettings.FORCE_DARK_OFF
                     }
@@ -343,6 +348,5 @@ fun AeryoWebView(
 
 private fun isBrowserUrl(url: String): Boolean {
     val scheme = runCatching { android.net.Uri.parse(url).scheme?.lowercase() }.getOrNull()
-    return scheme == "http" || scheme == "https" || scheme == "aeryo" || scheme == "about" ||
-        scheme == "file" || scheme == "content" || scheme == "data" || scheme == "blob"
+    return scheme == "http" || scheme == "https" || scheme == "aeryo" || scheme == "about"
 }

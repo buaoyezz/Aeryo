@@ -37,3 +37,6 @@ icons.txt
 # Release signing credentials
 keystore.properties
 signing/
+
+# Local emulator/debug launcher
+launch_emulator.bat
