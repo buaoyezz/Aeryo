@@ -3,6 +3,7 @@ package net.zzbuaoye.aeryo.settings.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -28,6 +29,14 @@ class UserPreferences(private val context: Context) {
         val GLASS_EFFECT_KEY = booleanPreferencesKey("glass_effect_enabled")
         val BLUR_EFFECT_KEY = booleanPreferencesKey("blur_effect_enabled")
         val LOGO_VARIANT_KEY = stringPreferencesKey("logo_variant")
+        val LOGO_STROKE_WIDTH_KEY = floatPreferencesKey("logo_stroke_width")
+        val LOGO_CUSTOM_COLOR_KEY = longPreferencesKey("logo_custom_color")
+        val LOGO_CUSTOM_COLOR_ENABLED_KEY = booleanPreferencesKey("logo_custom_color_enabled")
+        val LOGO_CUSTOM_IMAGE_URI_KEY = stringPreferencesKey("logo_custom_image_uri")
+        val LOGO_CUSTOM_TEXT_KEY = stringPreferencesKey("logo_custom_text")
+        val LOGO_OFFSET_X_KEY = floatPreferencesKey("logo_offset_x")
+        val LOGO_OFFSET_Y_KEY = floatPreferencesKey("logo_offset_y")
+        val LAUNCHER_ICON_VARIANT_KEY = stringPreferencesKey("launcher_icon_variant")
         val DO_NOT_TRACK_KEY = booleanPreferencesKey("do_not_track_enabled")
         val BLOCK_THIRD_PARTY_COOKIES_KEY = booleanPreferencesKey("block_third_party_cookies")
         val CLEAR_ON_EXIT_KEY = booleanPreferencesKey("clear_on_exit")
@@ -49,10 +58,20 @@ class UserPreferences(private val context: Context) {
         const val THEME_KEY_ORANGE = 0xFFE47732L
         const val THEME_KEY_PURPLE = 0xFF8656C9L
         const val THEME_KEY_RED = 0xFFD94C5CL
+        const val LOGO_VARIANT_DEFAULT = "default"
         const val LOGO_VARIANT_AURORA = "aurora"
         const val LOGO_VARIANT_SUNSET = "sunset"
         const val LOGO_VARIANT_MINT = "mint"
         const val LOGO_VARIANT_MONO = "mono"
+        const val LOGO_VARIANT_CUSTOM_IMAGE = "custom_image"
+        const val LOGO_VARIANT_CUSTOM_TEXT = "custom_text"
+        const val DEFAULT_LOGO_STROKE_WIDTH = 12f
+        const val DEFAULT_LOGO_CUSTOM_COLOR = 0xFF4D8DFFL
+        const val LAUNCHER_ICON_DEFAULT = "default"
+        const val LAUNCHER_ICON_FLAME = "flame"
+        const val LAUNCHER_ICON_AURORA = "aurora"
+        const val LAUNCHER_ICON_SUNSET = "sunset"
+        const val LAUNCHER_ICON_OCEAN = "ocean"
         val PRIVACY_BIOMETRIC_KEY = booleanPreferencesKey("privacy_biometric_enabled")
 
         // search engine urls 
@@ -123,7 +142,43 @@ class UserPreferences(private val context: Context) {
     }
 
     val logoVariant: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[LOGO_VARIANT_KEY] ?: LOGO_VARIANT_AURORA
+        prefs[LOGO_VARIANT_KEY] ?: LOGO_VARIANT_DEFAULT
+    }
+
+    val logoStrokeWidth: Flow<Float> = context.dataStore.data.map { prefs ->
+        prefs[LOGO_STROKE_WIDTH_KEY] ?: DEFAULT_LOGO_STROKE_WIDTH
+    }
+
+    val logoCustomColor: Flow<Long> = context.dataStore.data.map { prefs ->
+        prefs[LOGO_CUSTOM_COLOR_KEY] ?: DEFAULT_LOGO_CUSTOM_COLOR
+    }
+
+    val logoCustomColorEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[LOGO_CUSTOM_COLOR_ENABLED_KEY] ?: false
+    }
+
+    val logoCustomImageUri: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[LOGO_CUSTOM_IMAGE_URI_KEY].orEmpty()
+    }
+
+    val logoCustomText: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[LOGO_CUSTOM_TEXT_KEY] ?: "A"
+    }
+
+    val logoOffsetX: Flow<Float> = context.dataStore.data.map { prefs ->
+        prefs[LOGO_OFFSET_X_KEY] ?: 0f
+    }
+
+    val logoOffsetY: Flow<Float> = context.dataStore.data.map { prefs ->
+        prefs[LOGO_OFFSET_Y_KEY] ?: 0f
+    }
+
+    val launcherIconVariant: Flow<String> = context.dataStore.data.map { prefs ->
+        when (prefs[LAUNCHER_ICON_VARIANT_KEY]) {
+            "firefox" -> LAUNCHER_ICON_FLAME
+            null -> LAUNCHER_ICON_DEFAULT
+            else -> prefs[LAUNCHER_ICON_VARIANT_KEY] ?: LAUNCHER_ICON_DEFAULT
+        }
     }
 
     val doNotTrackEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -259,10 +314,58 @@ class UserPreferences(private val context: Context) {
     suspend fun setLogoVariant(variant: String) {
         context.dataStore.edit { prefs ->
             prefs[LOGO_VARIANT_KEY] = when (variant) {
+                LOGO_VARIANT_DEFAULT,
+                LOGO_VARIANT_AURORA,
                 LOGO_VARIANT_SUNSET,
                 LOGO_VARIANT_MINT,
-                LOGO_VARIANT_MONO -> variant
-                else -> LOGO_VARIANT_AURORA
+                LOGO_VARIANT_MONO,
+                LOGO_VARIANT_CUSTOM_IMAGE,
+                LOGO_VARIANT_CUSTOM_TEXT -> variant
+                else -> LOGO_VARIANT_DEFAULT
+            }
+        }
+    }
+
+    suspend fun setLogoStrokeWidth(width: Float) {
+        context.dataStore.edit { prefs ->
+            prefs[LOGO_STROKE_WIDTH_KEY] = width.coerceIn(6f, 22f)
+        }
+    }
+
+    suspend fun setLogoCustomColor(color: Long) {
+        context.dataStore.edit { prefs -> prefs[LOGO_CUSTOM_COLOR_KEY] = color }
+    }
+
+    suspend fun setLogoCustomColorEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs -> prefs[LOGO_CUSTOM_COLOR_ENABLED_KEY] = enabled }
+    }
+
+    suspend fun setLogoCustomImageUri(uri: String) {
+        context.dataStore.edit { prefs -> prefs[LOGO_CUSTOM_IMAGE_URI_KEY] = uri }
+    }
+
+    suspend fun setLogoCustomText(text: String) {
+        context.dataStore.edit { prefs ->
+            prefs[LOGO_CUSTOM_TEXT_KEY] = text.trim().take(8).ifBlank { "A" }
+        }
+    }
+
+    suspend fun setLogoOffsetX(offset: Float) {
+        context.dataStore.edit { prefs -> prefs[LOGO_OFFSET_X_KEY] = offset.coerceIn(-60f, 60f) }
+    }
+
+    suspend fun setLogoOffsetY(offset: Float) {
+        context.dataStore.edit { prefs -> prefs[LOGO_OFFSET_Y_KEY] = offset.coerceIn(-60f, 60f) }
+    }
+
+    suspend fun setLauncherIconVariant(variant: String) {
+        context.dataStore.edit { prefs ->
+            prefs[LAUNCHER_ICON_VARIANT_KEY] = when (variant) {
+                LAUNCHER_ICON_FLAME,
+                LAUNCHER_ICON_AURORA,
+                LAUNCHER_ICON_SUNSET,
+                LAUNCHER_ICON_OCEAN -> variant
+                else -> LAUNCHER_ICON_DEFAULT
             }
         }
     }

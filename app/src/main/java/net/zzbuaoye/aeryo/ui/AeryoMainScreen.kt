@@ -10,6 +10,8 @@ import android.webkit.CookieManager
 import android.webkit.WebStorage
 import android.webkit.WebViewDatabase
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -29,6 +31,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -62,9 +65,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.BlurredEdgeTreatment
@@ -80,6 +89,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.fragment.app.FragmentActivity
+import androidx.compose.ui.text.font.FontWeight
+import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -146,6 +157,12 @@ fun AeryoMainScreen() {
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val rootView = LocalView.current
+    val supportsAdvancedVisualEffects = remember(context, rootView) {
+        val activityManager = context.getSystemService(android.app.ActivityManager::class.java)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            rootView.isHardwareAccelerated &&
+            activityManager?.isLowRamDevice != true
+    }
     val chromeFocusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
 
@@ -188,13 +205,42 @@ fun AeryoMainScreen() {
     val themeKeyColor by preferences.themeKeyColor.collectAsState(initial = UserPreferences.DEFAULT_THEME_KEY_COLOR)
     val glassEffectEnabled by preferences.glassEffectEnabled.collectAsState(initial = true)
     val blurEffectEnabled by preferences.blurEffectEnabled.collectAsState(initial = false)
-    val logoVariant by preferences.logoVariant.collectAsState(initial = UserPreferences.LOGO_VARIANT_AURORA)
+    val logoVariant by preferences.logoVariant.collectAsState(initial = UserPreferences.LOGO_VARIANT_DEFAULT)
+    val logoStrokeWidth by preferences.logoStrokeWidth.collectAsState(initial = UserPreferences.DEFAULT_LOGO_STROKE_WIDTH)
+    val logoCustomColor by preferences.logoCustomColor.collectAsState(initial = UserPreferences.DEFAULT_LOGO_CUSTOM_COLOR)
+    val logoCustomColorEnabled by preferences.logoCustomColorEnabled.collectAsState(initial = false)
+    val logoCustomImageUri by preferences.logoCustomImageUri.collectAsState(initial = "")
+    val logoCustomText by preferences.logoCustomText.collectAsState(initial = "A")
+    val logoOffsetX by preferences.logoOffsetX.collectAsState(initial = 0f)
+    val logoOffsetY by preferences.logoOffsetY.collectAsState(initial = 0f)
+    val launcherIconVariant by preferences.launcherIconVariant.collectAsState(initial = "")
+    val effectiveGlassEffectEnabled = glassEffectEnabled && supportsAdvancedVisualEffects
+    val effectiveBlurEffectEnabled = blurEffectEnabled && supportsAdvancedVisualEffects
     val privacyBiometricEnabled by preferences.privacyBiometricEnabled.collectAsState(initial = false)
     val doNotTrackEnabled by preferences.doNotTrackEnabled.collectAsState(initial = true)
     val blockThirdPartyCookies by preferences.blockThirdPartyCookies.collectAsState(initial = false)
     val clearOnExit by preferences.clearOnExit.collectAsState(initial = false)
     val privateHistory by dao.getAllPrivateHistory().collectAsState(initial = emptyList())
     val activity = context as? FragmentActivity
+    val customLogoPainter = rememberAsyncImagePainter(model = logoCustomImageUri.takeIf(String::isNotBlank))
+
+    LaunchedEffect(launcherIconVariant) {
+        if (launcherIconVariant.isNotBlank()) {
+            applyLauncherIcon(context, launcherIconVariant)
+        }
+    }
+
+    val customLogoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            scope.launch {
+                preferences.setLogoCustomImageUri(uri.toString())
+                preferences.setLogoVariant(UserPreferences.LOGO_VARIANT_CUSTOM_IMAGE)
+            }
+        }
+    }
 
     var showMenu by remember { mutableStateOf(false) }
     var showTabs by remember { mutableStateOf(false) }
@@ -446,8 +492,8 @@ fun AeryoMainScreen() {
                         expanded = addressExpanded,
                         isBookmarked = rememberBookmarkState(dao, currentTab?.url.orEmpty()),
                         searchEngine = searchEngine,
-                        glassEffectEnabled = glassEffectEnabled,
-                        blurEffectEnabled = blurEffectEnabled,
+                        glassEffectEnabled = effectiveGlassEffectEnabled,
+                        blurEffectEnabled = effectiveBlurEffectEnabled,
                         onSearchEngineChange = { scope.launch { preferences.setSearchEngine(it) } },
                         onTextChange = { addressText = it },
                         onExpandedChange = { shouldExpand ->
@@ -600,7 +646,14 @@ fun AeryoMainScreen() {
                         isHome -> AeryoHomeScreen(
                             animationEnabled = addressBarAnimationEnabled,
                             logoVariant = logoVariant,
-                            blurEffectEnabled = blurEffectEnabled,
+                            logoStrokeWidth = logoStrokeWidth,
+                            logoCustomColor = logoCustomColor,
+                            logoCustomColorEnabled = logoCustomColorEnabled,
+                            logoCustomImageUri = logoCustomImageUri,
+                            logoCustomText = logoCustomText,
+                            logoOffsetX = logoOffsetX,
+                            logoOffsetY = logoOffsetY,
+                            blurEffectEnabled = effectiveBlurEffectEnabled,
                             searchEngine = searchEngine,
                             onSearchEngineChange = { scope.launch { preferences.setSearchEngine(it) } },
                             onSearchSubmit = navigateCurrentTab
@@ -889,7 +942,6 @@ fun AeryoMainScreen() {
         ) {
             SettingsScreen(
                 currentSearchEngine = searchEngine,
-                currentAdBlockEnabled = adBlockEnabled,
                 currentAddressBarAnimationEnabled = addressBarAnimationEnabled,
                 currentDownloadMode = downloadMode,
                 currentThemeMode = themeMode,
@@ -898,11 +950,20 @@ fun AeryoMainScreen() {
                 currentGlassEffectEnabled = glassEffectEnabled,
                 currentBlurEffectEnabled = blurEffectEnabled,
                 currentLogoVariant = logoVariant,
+                currentLogoStrokeWidth = logoStrokeWidth,
+                currentLogoCustomColor = logoCustomColor,
+                currentLogoCustomColorEnabled = logoCustomColorEnabled,
+                currentLogoCustomText = logoCustomText,
+                currentLogoOffsetX = logoOffsetX,
+                currentLogoOffsetY = logoOffsetY,
+                currentLauncherIconVariant = launcherIconVariant,
+                supportsLiquidGlass = supportsAdvancedVisualEffects,
+                supportsBackgroundBlur = supportsAdvancedVisualEffects,
+                customLogoPainter = customLogoPainter.takeIf { logoCustomImageUri.isNotBlank() },
                 currentPrivacyBiometricEnabled = privacyBiometricEnabled,
                 currentDoNotTrackEnabled = doNotTrackEnabled,
                 currentBlockThirdPartyCookies = blockThirdPartyCookies,
                 currentClearOnExit = clearOnExit,
-                appVersion = appVersionName,
                 onSearchEngineChanged = { scope.launch { preferences.setSearchEngine(it) } },
                 onAdBlockSettingsClicked = { showAdBlockSettings = true },
                 onAddressBarAnimationToggled = {
@@ -928,6 +989,29 @@ fun AeryoMainScreen() {
                 },
                 onLogoVariantChanged = { variant ->
                     scope.launch { preferences.setLogoVariant(variant) }
+                },
+                onLogoStrokeWidthChanged = { width ->
+                    scope.launch { preferences.setLogoStrokeWidth(width) }
+                },
+                onLogoCustomColorChanged = { color ->
+                    scope.launch { preferences.setLogoCustomColor(color) }
+                },
+                onLogoCustomColorEnabledChanged = { enabled ->
+                    scope.launch { preferences.setLogoCustomColorEnabled(enabled) }
+                },
+                onPickCustomLogo = { customLogoPicker.launch(arrayOf("image/*")) },
+                onLogoCustomTextChanged = { text ->
+                    scope.launch { preferences.setLogoCustomText(text) }
+                },
+                onLogoOffsetXChanged = { offset ->
+                    scope.launch { preferences.setLogoOffsetX(offset) }
+                },
+                onLogoOffsetYChanged = { offset ->
+                    scope.launch { preferences.setLogoOffsetY(offset) }
+                },
+                onLauncherIconVariantChanged = { variant ->
+                    applyLauncherIcon(context, variant)
+                    scope.launch { preferences.setLauncherIconVariant(variant) }
                 },
                 onPrivacyBiometricToggled = { enabled ->
                     requestPrivacyAuth {
@@ -1309,7 +1393,14 @@ private fun BrowserNavigationBar(
 @Composable
 private fun AeryoHomeScreen(
     animationEnabled: Boolean,
-    logoVariant: String = UserPreferences.LOGO_VARIANT_AURORA,
+    logoVariant: String = UserPreferences.LOGO_VARIANT_DEFAULT,
+    logoStrokeWidth: Float = UserPreferences.DEFAULT_LOGO_STROKE_WIDTH,
+    logoCustomColor: Long = UserPreferences.DEFAULT_LOGO_CUSTOM_COLOR,
+    logoCustomColorEnabled: Boolean = false,
+    logoCustomImageUri: String = "",
+    logoCustomText: String = "A",
+    logoOffsetX: Float = 0f,
+    logoOffsetY: Float = 0f,
     blurEffectEnabled: Boolean = false,
     searchEngine: String = UserPreferences.ENGINE_BING,
     onSearchEngineChange: (String) -> Unit = {},
@@ -1328,14 +1419,6 @@ private fun AeryoHomeScreen(
             suggestions = fetchSearchSuggestions(searchEngine, query)
         }
     }
-    val logoResource = when (logoVariant) {
-        UserPreferences.LOGO_VARIANT_SUNSET -> R.drawable.aeryo_logo_sunset
-        UserPreferences.LOGO_VARIANT_MINT -> R.drawable.aeryo_logo_mint
-        UserPreferences.LOGO_VARIANT_MONO -> R.drawable.aeryo_logo_mono
-        else -> R.drawable.aeryo_logo_aurora
-    }
-    // painterResource supports both the vector logo variants and bitmap fallbacks.
-    val logoPainter = painterResource(id = logoResource)
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -1397,24 +1480,27 @@ private fun AeryoHomeScreen(
             )
         }
 
-        Image(
-            painter = logoPainter,
-            contentDescription = "Aeryo",
-            colorFilter = if (logoVariant == UserPreferences.LOGO_VARIANT_MONO) {
-                ColorFilter.tint(MiuixTheme.colorScheme.onBackground)
-            } else {
-                null
-            },
+        Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = centeredSearchY - 128.dp)
+                .offset(x = logoOffsetX.dp, y = centeredSearchY - 128.dp + logoOffsetY.dp)
                 .size(108.dp)
                 .graphicsLayer {
                     alpha = logoAlpha
                     scaleX = logoScale
                     scaleY = logoScale
-                }
-        )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            AeryoHomeLogo(
+                variant = logoVariant,
+                strokeWidth = logoStrokeWidth,
+                customColor = logoCustomColor,
+                customColorEnabled = logoCustomColorEnabled,
+                customImageUri = logoCustomImageUri,
+                customText = logoCustomText
+            )
+        }
         InputField(
             query = query,
             onQueryChange = { query = it },
@@ -1463,6 +1549,114 @@ private fun AeryoHomeScreen(
         BackHandler(enabled = expanded) {
             dismissSearch()
         }
+    }
+}
+
+@Composable
+private fun AeryoHomeLogo(
+    variant: String,
+    strokeWidth: Float,
+    customColor: Long,
+    customColorEnabled: Boolean,
+    customImageUri: String,
+    customText: String
+) {
+    when (variant) {
+        UserPreferences.LOGO_VARIANT_DEFAULT -> AeryoHomeLineMark(
+            variant = variant,
+            strokeWidth = strokeWidth,
+            customColor = customColor,
+            customColorEnabled = customColorEnabled
+        )
+
+        UserPreferences.LOGO_VARIANT_CUSTOM_IMAGE -> {
+            if (customImageUri.isNotBlank()) {
+                Image(
+                    painter = rememberAsyncImagePainter(customImageUri),
+                    contentDescription = "自定义 Logo",
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Image(
+                    painter = painterResource(R.drawable.aeryo_app_icon),
+                    contentDescription = "Aeryo 默认 Logo",
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        UserPreferences.LOGO_VARIANT_CUSTOM_TEXT -> Text(
+            text = customText.ifBlank { "A" },
+            color = if (customColorEnabled) Color(customColor) else MiuixTheme.colorScheme.primary,
+            fontSize = 52.sp,
+            fontWeight = when {
+                strokeWidth >= 15f -> FontWeight.Black
+                strokeWidth >= 10f -> FontWeight.Bold
+                else -> FontWeight.Medium
+            }
+        )
+
+        else -> AeryoHomeLineMark(variant, strokeWidth, customColor, customColorEnabled)
+    }
+}
+
+@Composable
+private fun AeryoHomeLineMark(
+    variant: String,
+    strokeWidth: Float,
+    customColor: Long,
+    customColorEnabled: Boolean
+) {
+    val monoColor = MiuixTheme.colorScheme.onBackground
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val sx = size.width / 120f
+        val sy = size.height / 120f
+        val path = Path().apply {
+            moveTo(24f * sx, 96f * sy)
+            cubicTo(30f * sx, 69f * sy, 37f * sx, 45f * sy, 50f * sx, 27f * sy)
+            cubicTo(56f * sx, 19f * sy, 65f * sx, 19f * sy, 71f * sx, 28f * sy)
+            cubicTo(79f * sx, 42f * sy, 84f * sx, 62f * sy, 89f * sx, 85f * sy)
+            moveTo(36f * sx, 72f * sy)
+            cubicTo(52f * sx, 62f * sy, 70f * sx, 58f * sy, 91f * sx, 60f * sy)
+            cubicTo(104f * sx, 61f * sy, 111f * sx, 68f * sy, 108f * sx, 79f * sy)
+            cubicTo(105f * sx, 91f * sy, 92f * sx, 98f * sy, 78f * sx, 96f * sy)
+        }
+        val brush = if (customColorEnabled) {
+            SolidColor(Color(customColor))
+        } else {
+            when (variant) {
+                UserPreferences.LOGO_VARIANT_SUNSET -> Brush.linearGradient(
+                    listOf(Color(0xFFFFC247), Color(0xFFFF7043), Color(0xFFE04F88)),
+                    Offset.Zero,
+                    Offset(size.width, size.height)
+                )
+                UserPreferences.LOGO_VARIANT_MINT -> Brush.linearGradient(
+                    listOf(Color(0xFF50D8AE), Color(0xFF27B7A5), Color(0xFF3A88D8)),
+                    Offset.Zero,
+                    Offset(size.width, size.height)
+                )
+                UserPreferences.LOGO_VARIANT_MONO -> SolidColor(monoColor)
+                UserPreferences.LOGO_VARIANT_DEFAULT -> Brush.linearGradient(
+                    listOf(Color(0xFFFFB13B), Color(0xFFF16A55), Color(0xFF8A4FD2)),
+                    Offset.Zero,
+                    Offset(size.width, size.height)
+                )
+                else -> Brush.linearGradient(
+                    listOf(Color(0xFF4DA3FF), Color(0xFF806BFF), Color(0xFFC35BDF)),
+                    Offset.Zero,
+                    Offset(size.width, size.height)
+                )
+            }
+        }
+        drawPath(
+            path = path,
+            brush = brush,
+            style = Stroke(
+                width = strokeWidth.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round
+            )
+        )
     }
 }
 
@@ -1534,6 +1728,28 @@ private fun openExternalLink(context: android.content.Context, rawUrl: String): 
         false
     } catch (_: SecurityException) {
         false
+    }
+}
+
+private fun applyLauncherIcon(context: android.content.Context, variant: String) {
+    val aliases = linkedMapOf(
+        UserPreferences.LAUNCHER_ICON_DEFAULT to ".launcher.DefaultIconAlias",
+        UserPreferences.LAUNCHER_ICON_FLAME to ".launcher.FlameIconAlias",
+        UserPreferences.LAUNCHER_ICON_AURORA to ".launcher.AuroraIconAlias",
+        UserPreferences.LAUNCHER_ICON_SUNSET to ".launcher.SunsetIconAlias",
+        UserPreferences.LAUNCHER_ICON_OCEAN to ".launcher.OceanIconAlias"
+    )
+    val selected = aliases[variant] ?: aliases.getValue(UserPreferences.LAUNCHER_ICON_DEFAULT)
+    (aliases.values + ".launcher.FirefoxIconAlias").forEach { alias ->
+        context.packageManager.setComponentEnabledSetting(
+            android.content.ComponentName(context.packageName, context.packageName + alias),
+            if (alias == selected) {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            },
+            android.content.pm.PackageManager.DONT_KILL_APP
+        )
     }
 }
 
