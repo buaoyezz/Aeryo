@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aeryo | Version Information</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            font-size: 14px;
+            color: #222;
+            background: #fff;
+            padding: 20px;
+            margin: 0;
+            line-height: 1.6;
+        }
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #111;
+                color: #ddd;
+            }
+        }
+        h1 {
+            font-size: 18px;
+            margin: 0 0 20px;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 5px;
+        }
+        @media (prefers-color-scheme: dark) {
+            h1 { border-bottom-color: #444; }
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            max-width: 800px;
+        }
+        th, td {
+            text-align: left;
+            padding: 6px 12px;
+            vertical-align: top;
+        }
+        th {
+            font-weight: normal;
+            white-space: nowrap;
+            width: 1%;
+            color: #555;
+        }
+        @media (prefers-color-scheme: dark) {
+            th { color: #999; }
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            height: 72px;
+            font-weight: bold;
+            font-size: 24px;
+            line-height: 1;
+            margin-bottom: 20px;
+            letter-spacing: 1px;
+        }
+        .logo img {
+            display: block;
+            flex: 0 0 72px;
+            width: 72px;
+            height: 72px;
+        }
+    </style>
+</head>
+<body>
+    <div class="logo"><img src="aeryo://version/artwork/aeryo_app_icon.svg" alt=""> Aeryo</div>
+    <h1>Version Information</h1>
+    <table>
+        <tr>
+            <th>Application</th>
+            <td>__AERYO_APP_NAME__</td>
+        </tr>
+        <tr>
+            <th>Package</th>
+            <td>__AERYO_PACKAGE__</td>
+        </tr>
+        <tr>
+            <th>Version</th>
+            <td>__AERYO_VERSION__</td>
+        </tr>
+        <tr>
+            <th>Channel</th>
+            <td>__AERYO_CHANNEL__</td>
+        </tr>   
+        <tr>
+            <th>Build</th>
+            <td>__AERYO_BUILD__</td>
+        </tr>
+        <tr>
+            <th>Platform</th>
+            <td id="platform"></td>
+        </tr>
+        <tr>
+            <th>Engine</th>
+            <td>WebView <span aria-hidden="true">|</span> <span id="engine">__AERYO_ENGINE__</span></td>
+        </tr>
+        <tr>
+            <th>User Agent</th>
+            <td id="ua"></td>
+        </tr>
+    </table>
+    <script>
+        document.getElementById('ua').textContent = navigator.userAgent;
+        document.getElementById('platform').textContent = navigator.platform;
+    </script>
+</body>
+</html>

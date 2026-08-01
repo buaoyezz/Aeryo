@@ -1,0 +1,36 @@
+# Local Android and Gradle state
+.gradle/
+.kotlin/
+local.properties
+**/build/
+
+# IDE and generated release artifacts
+.vscode/
+release/
+
+# Local scratch, reverse-engineering and visual-QA files
+temp_dir/
+miuix-icons-extracted/
+miuix-icons-classes-extracted/
+*.zip
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.py
+check.kts
+script.kts
+test*.kt
+test*.html
+middle.kt
+reconstructed_chunk*.kt
+recovered_chunk*.txt
+*_live.png
+*_live.xml
+aeryo-*.png
+aeryo-*.xml
+screenshot.png
+miuix_icons_preview.html
+icons.txt
+
+# Release signing credentials
+keystore.properties
+signing/
