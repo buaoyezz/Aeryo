@@ -33,17 +33,19 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.offset
@@ -52,6 +54,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -76,8 +83,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -90,6 +95,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.graphics.Shape
 import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -126,7 +135,6 @@ import top.yukonga.miuix.kmp.basic.Badge
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.InputField
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
@@ -144,6 +152,10 @@ import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Search
 import top.yukonga.miuix.kmp.icon.extended.Sidebar
+import top.yukonga.miuix.kmp.shader.RuntimeShader
+import top.yukonga.miuix.kmp.shader.asBrush
+import top.yukonga.miuix.kmp.shader.isRenderEffectSupported
+import top.yukonga.miuix.kmp.shader.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.ByteArrayOutputStream
 import java.io.BufferedReader
@@ -157,13 +169,12 @@ fun AeryoMainScreen() {
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val rootView = LocalView.current
-    val supportsAdvancedVisualEffects = remember(context, rootView) {
+    val supportsVisualEffects = remember(context, rootView) {
         val activityManager = context.getSystemService(android.app.ActivityManager::class.java)
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            rootView.isHardwareAccelerated &&
-            activityManager?.isLowRamDevice != true
+        rootView.isHardwareAccelerated && activityManager?.isLowRamDevice != true
     }
-    val chromeFocusRequester = remember { FocusRequester() }
+    val supportsLiquidGlass = supportsVisualEffects && isRuntimeShaderSupported()
+    val supportsBackgroundBlur = supportsVisualEffects && isRenderEffectSupported()
     val scope = rememberCoroutineScope()
 
     val tabManager = remember { TabManager() }
@@ -214,8 +225,8 @@ fun AeryoMainScreen() {
     val logoOffsetX by preferences.logoOffsetX.collectAsState(initial = 0f)
     val logoOffsetY by preferences.logoOffsetY.collectAsState(initial = 0f)
     val launcherIconVariant by preferences.launcherIconVariant.collectAsState(initial = "")
-    val effectiveGlassEffectEnabled = glassEffectEnabled && supportsAdvancedVisualEffects
-    val effectiveBlurEffectEnabled = blurEffectEnabled && supportsAdvancedVisualEffects
+    val effectiveGlassEffectEnabled = glassEffectEnabled && supportsLiquidGlass
+    val effectiveBlurEffectEnabled = blurEffectEnabled && supportsBackgroundBlur
     val privacyBiometricEnabled by preferences.privacyBiometricEnabled.collectAsState(initial = false)
     val doNotTrackEnabled by preferences.doNotTrackEnabled.collectAsState(initial = true)
     val blockThirdPartyCookies by preferences.blockThirdPartyCookies.collectAsState(initial = false)
@@ -253,9 +264,6 @@ fun AeryoMainScreen() {
     var showFind by remember { mutableStateOf(false) }
     var addressText by remember { mutableStateOf("") }
     var addressExpanded by remember { mutableStateOf(false) }
-    var addressInputEnabled by remember { mutableStateOf(true) }
-    var isAddressSubmitting by remember { mutableStateOf(false) }
-    var addressInputGeneration by remember { mutableStateOf(0) }
     val downloadItems = remember { mutableStateListOf<DownloadItem>() }
     var pendingDownloadRequest by remember { mutableStateOf<DownloadRequest?>(null) }
     var duplicateDownload by remember { mutableStateOf<DownloadItem?>(null) }
@@ -338,7 +346,7 @@ fun AeryoMainScreen() {
         }
     }
 
-    LaunchedEffect(currentTab?.url, currentTab?.title, searchEngine, addressExpanded) {
+    LaunchedEffect(currentTab?.url, currentTab?.title, currentTab?.isLoading, searchEngine, addressExpanded) {
         if (!addressExpanded) {
             addressText = collapsedAddressText(currentTab)
         }
@@ -346,10 +354,8 @@ fun AeryoMainScreen() {
 
     LaunchedEffect(addressExpanded) {
         if (!addressExpanded) {
-            delay(100)
             focusManager.clearFocus(force = true)
             keyboardController?.hide()
-            rootView.clearFocus()
             context.getSystemService(InputMethodManager::class.java)
                 ?.hideSoftInputFromWindow(rootView.windowToken, 0)
         }
@@ -456,12 +462,6 @@ fun AeryoMainScreen() {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .size(1.dp)
-                .focusRequester(chromeFocusRequester)
-                .focusable()
-        )
         Scaffold(
             topBar = {
                 AnimatedVisibility(
@@ -486,8 +486,6 @@ fun AeryoMainScreen() {
                     BrowserAddressBar(
                         tab = currentTab,
                         isHome = false,
-                        enabled = addressInputEnabled,
-                        inputGeneration = addressInputGeneration,
                         text = addressText,
                         expanded = addressExpanded,
                         isBookmarked = rememberBookmarkState(dao, currentTab?.url.orEmpty()),
@@ -497,39 +495,19 @@ fun AeryoMainScreen() {
                         onSearchEngineChange = { scope.launch { preferences.setSearchEngine(it) } },
                         onTextChange = { addressText = it },
                         onExpandedChange = { shouldExpand ->
-                            if (!isAddressSubmitting || !shouldExpand) {
-                                if (shouldExpand) {
-                                    addressText = currentTab?.url
-                                        ?.takeUnless { it.isBlank() || it == "about:blank" }
-                                        .orEmpty()
-                                    addressInputGeneration += 1
-                                }
-                                addressExpanded = shouldExpand
+                            if (shouldExpand && !addressExpanded) {
+                                addressText = currentTab?.url
+                                    ?.takeUnless { it.isBlank() || it == "about:blank" }
+                                    .orEmpty()
                             }
+                            addressExpanded = shouldExpand
                         },
                         onSubmit = {
-                            isAddressSubmitting = true
-                            addressInputEnabled = false
-                            addressText = it.trim()
+                            val submittedText = it.trim()
                             addressExpanded = false
                             keyboardController?.hide()
                             focusManager.clearFocus(force = true)
-                            navigateCurrentTab(it)
-                            scope.launch {
-                                delay(150)
-                                addressExpanded = false
-                                chromeFocusRequester.requestFocus()
-                                focusManager.clearFocus(force = true)
-                                keyboardController?.hide()
-                                rootView.clearFocus()
-                                context.getSystemService(InputMethodManager::class.java)
-                                    ?.hideSoftInputFromWindow(rootView.windowToken, 0)
-                                addressInputGeneration += 1
-                                addressInputEnabled = true
-                                delay(100)
-                                addressExpanded = false
-                                isAddressSubmitting = false
-                            }
+                            navigateCurrentTab(submittedText)
                         },
                         onToggleBookmark = {
                             currentTab?.let { tab ->
@@ -653,6 +631,7 @@ fun AeryoMainScreen() {
                             logoCustomText = logoCustomText,
                             logoOffsetX = logoOffsetX,
                             logoOffsetY = logoOffsetY,
+                            glassEffectEnabled = effectiveGlassEffectEnabled,
                             blurEffectEnabled = effectiveBlurEffectEnabled,
                             searchEngine = searchEngine,
                             onSearchEngineChange = { scope.launch { preferences.setSearchEngine(it) } },
@@ -957,8 +936,8 @@ fun AeryoMainScreen() {
                 currentLogoOffsetX = logoOffsetX,
                 currentLogoOffsetY = logoOffsetY,
                 currentLauncherIconVariant = launcherIconVariant,
-                supportsLiquidGlass = supportsAdvancedVisualEffects,
-                supportsBackgroundBlur = supportsAdvancedVisualEffects,
+                supportsLiquidGlass = supportsLiquidGlass,
+                supportsBackgroundBlur = supportsBackgroundBlur,
                 customLogoPainter = customLogoPainter.takeIf { logoCustomImageUri.isNotBlank() },
                 currentPrivacyBiometricEnabled = privacyBiometricEnabled,
                 currentDoNotTrackEnabled = doNotTrackEnabled,
@@ -1127,12 +1106,184 @@ private fun android.graphics.Bitmap.toPngBytes(): ByteArray? {
     }
 }
 
+private const val AERYO_GLASS_SHADER = """
+uniform float2 uResolution;
+layout(color) uniform float4 uSurface;
+layout(color) uniform float4 uAccent;
+uniform float uLiquid;
+uniform float uFrost;
+
+half4 main(float2 fragCoord) {
+    float2 resolution = max(uResolution, float2(1.0));
+    float2 uv = fragCoord / resolution;
+    float diagonal = smoothstep(1.05, 0.08, uv.x + uv.y * 0.55);
+    float lowerGlow = smoothstep(0.98, 0.28, distance(uv, float2(0.78, 1.08)));
+    float grain = fract(sin(dot(floor(fragCoord * 0.55), float2(12.9898, 78.233))) * 43758.5453);
+    float3 color = uSurface.rgb;
+    color += uAccent.rgb * diagonal * 0.12 * uLiquid;
+    color += float3(1.0) * lowerGlow * 0.055 * uLiquid;
+    color += (grain - 0.5) * 0.032 * uFrost;
+    float alpha = clamp(uSurface.a + 0.04 * uLiquid + 0.06 * uFrost, 0.0, 1.0);
+    return half4(half3(clamp(color, 0.0, 1.0)), half(alpha));
+}
+"""
+
+@Composable
+private fun AeryoGlassSurface(
+    liquidGlassEnabled: Boolean,
+    blurEnabled: Boolean,
+    shape: Shape,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val surfaceColor = when {
+        blurEnabled -> MiuixTheme.colorScheme.surface.copy(alpha = 0.78f)
+        liquidGlassEnabled -> MiuixTheme.colorScheme.surface.copy(alpha = 0.86f)
+        else -> MiuixTheme.colorScheme.surfaceContainerHigh
+    }
+    val accentColor = MiuixTheme.colorScheme.primary
+    val shader = remember(liquidGlassEnabled, blurEnabled) {
+        if ((liquidGlassEnabled || blurEnabled) && isRuntimeShaderSupported()) {
+            runCatching { RuntimeShader(AERYO_GLASS_SHADER) }.getOrNull()
+        } else {
+            null
+        }
+    }
+    val shaderBrush = remember(shader) { shader?.asBrush() }
+    val fallbackBrush = remember(surfaceColor, accentColor, liquidGlassEnabled, blurEnabled) {
+        Brush.linearGradient(
+            colors = listOf(
+                if (liquidGlassEnabled) accentColor.copy(alpha = 0.18f) else surfaceColor,
+                surfaceColor,
+                if (blurEnabled) Color.White.copy(alpha = 0.08f) else surfaceColor
+            ),
+            start = Offset.Zero,
+            end = Offset(900f, 420f)
+        )
+    }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(surfaceColor)
+            .border(
+                width = 0.75.dp,
+                color = Color.White.copy(alpha = if (liquidGlassEnabled) 0.26f else if (blurEnabled) 0.14f else 0f),
+                shape = shape
+            )
+    ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            if (shader != null && shaderBrush != null) {
+                shader.setFloatUniform("uResolution", size.width, size.height)
+                shader.setColorUniform("uSurface", surfaceColor)
+                shader.setColorUniform("uAccent", accentColor)
+                shader.setFloatUniform("uLiquid", if (liquidGlassEnabled) 1f else 0f)
+                shader.setFloatUniform("uFrost", if (blurEnabled) 1f else 0f)
+                drawRect(shaderBrush)
+            } else if (liquidGlassEnabled || blurEnabled) {
+                drawRect(fallbackBrush)
+            }
+        }
+        content()
+    }
+}
+
+@Composable
+private fun AeryoSearchInputField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: (String) -> Unit,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String = "",
+    enabled: Boolean = true,
+    selectAllOnExpand: Boolean = false,
+    liquidGlassEnabled: Boolean = false,
+    blurEnabled: Boolean = false,
+    leadingIcon: @Composable (() -> Unit)? = null,
+    trailingIcon: @Composable (() -> Unit)? = null
+) {
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var fieldValue by remember { mutableStateOf(TextFieldValue(query, selection = TextRange(query.length))) }
+
+    LaunchedEffect(query) {
+        if (fieldValue.text != query) {
+            fieldValue = TextFieldValue(query, selection = TextRange(query.length))
+        }
+    }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            fieldValue = fieldValue.copy(
+                selection = if (selectAllOnExpand) TextRange(0, fieldValue.text.length) else TextRange(fieldValue.text.length)
+            )
+            focusRequester.requestFocus()
+        } else {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+        }
+    }
+
+    BasicTextField(
+        value = fieldValue,
+        onValueChange = { value ->
+            fieldValue = value
+            onQueryChange(value.text)
+        },
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { state ->
+                if (state.isFocused && !expanded) onExpandedChange(true)
+            },
+        enabled = enabled,
+        singleLine = true,
+        textStyle = MiuixTheme.textStyles.main.copy(
+            color = MiuixTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Medium
+        ),
+        cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearch(fieldValue.text) }),
+        decorationBox = { innerTextField ->
+            AeryoGlassSurface(
+                liquidGlassEnabled = liquidGlassEnabled,
+                blurEnabled = blurEnabled,
+                shape = CircleShape,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    leadingIcon?.invoke()
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 46.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (fieldValue.text.isEmpty() && !expanded) {
+                            Text(
+                                text = label,
+                                color = MiuixTheme.colorScheme.onSurfaceContainerHigh,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        innerTextField()
+                    }
+                    trailingIcon?.invoke()
+                }
+            }
+        }
+    )
+}
+
 @Composable
 private fun BrowserAddressBar(
     tab: WebTab?,
     isHome: Boolean,
-    enabled: Boolean,
-    inputGeneration: Int,
     text: String,
     expanded: Boolean,
     isBookmarked: Boolean,
@@ -1147,9 +1298,6 @@ private fun BrowserAddressBar(
     onSavePrivateHistory: () -> Unit = {}
 ) {
     val isIncognito = tab?.isIncognito == true
-    // Search result pages do not need a trailing favorite action; hiding it
-    // leaves the address bar stable after a query has loaded.
-    val isSearchResultPage = extractSearchQueryFromUrl(tab?.url.orEmpty()) != null
     var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(expanded, text, searchEngine) {
         if (!expanded || !isSearchQueryInput(text)) {
@@ -1163,26 +1311,23 @@ private fun BrowserAddressBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                when {
-                    isIncognito -> androidx.compose.ui.graphics.Color(0xFF181524)
-                    isHome -> MiuixTheme.colorScheme.background
-                    glassEffectEnabled -> MiuixTheme.colorScheme.surface.copy(alpha = 0.86f)
-                    else -> MiuixTheme.colorScheme.surface
-                }
+                if (isIncognito) androidx.compose.ui.graphics.Color(0xFF181524)
+                else MiuixTheme.colorScheme.background
             )
             .statusBarsPadding()
     ) {
-        key(inputGeneration) {
-            InputField(
-                query = text,
-                onQueryChange = onTextChange,
-                onSearch = onSubmit,
-                expanded = expanded,
-                onExpandedChange = onExpandedChange,
-                enabled = enabled,
-                label = if (tab?.url == "about:blank") {
-                    if (isIncognito) "无痕模式 - 搜索或输入网址" else "搜索或输入网址"
-                } else tab?.title.orEmpty(),
+        AeryoSearchInputField(
+            query = text,
+            onQueryChange = onTextChange,
+            onSearch = onSubmit,
+            expanded = expanded,
+            onExpandedChange = onExpandedChange,
+            selectAllOnExpand = true,
+            label = if (tab?.url == "about:blank") {
+                if (isIncognito) "无痕模式 - 搜索或输入网址" else "搜索或输入网址"
+            } else collapsedAddressText(tab),
+            liquidGlassEnabled = glassEffectEnabled,
+            blurEnabled = blurEffectEnabled,
                 leadingIcon = {
                     Icon(
                         imageVector = when {
@@ -1205,7 +1350,7 @@ private fun BrowserAddressBar(
                             .padding(start = 16.dp, end = 8.dp)
                     )
                 },
-                trailingIcon = if (isHome) {
+            trailingIcon = if (isHome) {
                     {
                         SearchEngineSwitchButton(
                             currentEngine = searchEngine,
@@ -1235,11 +1380,10 @@ private fun BrowserAddressBar(
                                         )
                                     }
                                 }
-                                if (!isSearchResultPage) {
-                                    IconButton(
-                                        onClick = onToggleBookmark,
-                                        modifier = Modifier.padding(end = 4.dp)
-                                    ) {
+                                IconButton(
+                                    onClick = onToggleBookmark,
+                                    modifier = Modifier.padding(end = 4.dp)
+                                ) {
                                     AnimatedContent(
                                         targetState = isBookmarked,
                                         transitionSpec = {
@@ -1270,20 +1414,19 @@ private fun BrowserAddressBar(
                                             }
                                         )
                                     }
-                                    }
                                 }
                             }
                         }
                     }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-        }
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        )
         if (expanded && suggestions.isNotEmpty()) {
             SearchSuggestionPopup(
                 suggestions = suggestions,
+                blurEffectEnabled = blurEffectEnabled,
                 onSuggestionSelected = { suggestion ->
                     onTextChange(suggestion)
                     onExpandedChange(false)
@@ -1401,6 +1544,7 @@ private fun AeryoHomeScreen(
     logoCustomText: String = "A",
     logoOffsetX: Float = 0f,
     logoOffsetY: Float = 0f,
+    glassEffectEnabled: Boolean = false,
     blurEffectEnabled: Boolean = false,
     searchEngine: String = UserPreferences.ENGINE_BING,
     onSearchEngineChange: (String) -> Unit = {},
@@ -1425,19 +1569,6 @@ private fun AeryoHomeScreen(
             .statusBarsPadding()
             .padding(horizontal = 28.dp)
     ) {
-        if (blurEffectEnabled) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .offset(y = 8.dp)
-                    .size(176.dp)
-                    .blur(58.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
-                    .background(
-                        color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f),
-                        shape = CircleShape
-                    )
-            )
-        }
         val dismissSearch = {
             expanded = false
             keyboardController?.hide()
@@ -1501,7 +1632,7 @@ private fun AeryoHomeScreen(
                 customText = logoCustomText
             )
         }
-        InputField(
+        AeryoSearchInputField(
             query = query,
             onQueryChange = { query = it },
             onSearch = { value ->
@@ -1515,6 +1646,18 @@ private fun AeryoHomeScreen(
             expanded = expanded,
             onExpandedChange = { expanded = it },
             label = "搜索或输入网址",
+            liquidGlassEnabled = glassEffectEnabled,
+            blurEnabled = blurEffectEnabled,
+            leadingIcon = {
+                Icon(
+                    imageVector = MiuixIcons.Search,
+                    contentDescription = "搜索",
+                    tint = MiuixTheme.colorScheme.onSurfaceContainerHigh,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .padding(start = 16.dp, end = 8.dp)
+                )
+            },
             trailingIcon = if (expanded) {
                 {
                     SearchEngineSwitchButton(
@@ -1532,6 +1675,7 @@ private fun AeryoHomeScreen(
         if (expanded && suggestions.isNotEmpty()) {
             SearchSuggestionPopup(
                 suggestions = suggestions,
+                blurEffectEnabled = blurEffectEnabled,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .offset(y = searchOffsetY + 66.dp)
@@ -1696,10 +1840,10 @@ private fun processUrlInput(input: String, searchEngine: String): String {
 
 private fun collapsedAddressText(tab: WebTab?): String {
     val url = tab?.url.orEmpty().takeUnless { it.isBlank() || it == "about:blank" } ?: return ""
-    extractSearchQueryFromUrl(url)?.takeIf(String::isNotBlank)?.let { return it }
     tab?.title?.takeUnless {
         it.isBlank() || it == "新标签页" || it == "主页" || it == url
     }?.let { return it }
+    extractSearchQueryFromUrl(url)?.takeIf(String::isNotBlank)?.let { return it }
     return url
 }
 
@@ -1785,13 +1929,19 @@ private fun extractSearchQueryFromUrl(url: String): String? {
 private fun SearchSuggestionPopup(
     suggestions: List<String>,
     onSuggestionSelected: (String) -> Unit,
+    blurEffectEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier.padding(horizontal = 4.dp),
-        insideMargin = androidx.compose.foundation.layout.PaddingValues(0.dp)
+    AeryoGlassSurface(
+        liquidGlassEnabled = false,
+        blurEnabled = blurEffectEnabled,
+        shape = RoundedCornerShape(22.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp)
+            .heightIn(max = 320.dp)
     ) {
-        LazyColumn {
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
             items(suggestions, key = { it }) { suggestion ->
                 Row(
                     modifier = Modifier
@@ -1853,7 +2003,7 @@ private suspend fun fetchSearchSuggestions(searchEngine: String, query: String):
             } finally {
                 connection.disconnect()
             }
-        }.getOrDefault(emptyList()).distinct().filter { it.isNotBlank() }.take(6)
+        }.getOrDefault(emptyList()).distinct().filter { it.isNotBlank() }.take(12)
     }
 }
 
