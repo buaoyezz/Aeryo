@@ -15,10 +15,7 @@ A simple, clean, and comfortable way to browse the web.
   &nbsp;&middot;&nbsp;
   <a href="#license">License</a>
   <br>
-  🌏 |
   <a href="./README_ZH.md">简体中文</a>
-  &nbsp;&middot;&nbsp;
-  <a href="./README.md">English</a>
 </p>
 
 
@@ -28,8 +25,8 @@ A simple, clean, and comfortable way to browse the web.
 
 <p align="center">
 Aeryo is an Android browser built with Jetpack Compose and Miuix.<br>
-It brings tabbed browsing, search-engine switching, bookmarks and history,
-ad blocking, privacy controls, and downloads into one focused browsing experience.
+It provides tabbed browsing, search-engine switching, bookmarks and history,
+ad blocking, privacy controls, and download functionality.
 </p>
 
 
@@ -43,6 +40,17 @@ Build
 The project uses the Gradle wrapper and requires Android Studio or a configured
 Android SDK.
 </p>
+
+If you prefer using <strong>VS Code</strong> for development, run the following
+commands after opening the project for the first time or updating dependencies:
+<br><br>
+
+This command helps generate the project index:
+```powershell
+.\gradlew.bat idea
+```
+---
+This command builds the project:
 
 ```powershell
 .\gradlew.bat :app:assembleDebug

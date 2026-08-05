@@ -35,9 +35,17 @@ Aeryo 是一个基于 Jetpack Compose 和 Miuix 构建的 Android 浏览器<br>
 </h2>
 
 <p align="center">
-项目使用 Gradle Wrapper 构建，需要 Android Studio 或已配置好的 Android SDK。
+项目使用 Gradle Wrapper 构建，需要 Android Studio 或已配置好的 Android SDK
 </p>
+如果你习惯使用 <strong>VS Code</strong> 进行开发，建议在初次打开项目或更新依赖后执行以下步骤：
+<br><br>
 
+此命令会帮助你生成项目索引:
+```powershell
+.\gradlew.bat idea 
+```
+---
+此命令会帮助你构建项目
 ```powershell
 .\gradlew.bat :app:assembleDebug
 ```

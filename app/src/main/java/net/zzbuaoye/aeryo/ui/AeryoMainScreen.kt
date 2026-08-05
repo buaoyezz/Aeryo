@@ -236,6 +236,10 @@ fun AeryoMainScreen() {
     val effectiveGlassEffectEnabled = glassEffectEnabled && supportsLiquidGlass
     val effectiveBlurEffectEnabled = blurEffectEnabled && supportsBackgroundBlur
 
+    LaunchedEffect(Unit) {
+        preferences.migrateSearchEngine()
+    }
+
     LaunchedEffect(tabViewMode) {
         if (tabViewMode != UserPreferences.TAB_VIEW_MODE_GRID &&
             tabViewMode != UserPreferences.TAB_VIEW_MODE_HALF

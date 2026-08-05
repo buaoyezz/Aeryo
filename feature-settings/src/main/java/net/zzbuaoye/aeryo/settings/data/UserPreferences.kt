@@ -87,11 +87,31 @@ class UserPreferences(private val context: Context) {
         const val ENGINE_YANDEX = "https://yandex.com/search/?text="
         const val ENGINE_360 = "https://www.so.com/s?q="
         const val ENGINE_SOGOU = "https://www.sogou.com/web?query="
+
+        /**
+         * Search-engine settings are stored as URL prefixes. Older builds could
+         * persist a redirected Bing URL (including repeated mkt parameters),
+         * which would then be used as a prefix for the next search.
+         */
+        fun normalizeSearchEngine(engineUrl: String?): String {
+            val value = engineUrl?.trim().orEmpty().lowercase()
+            return when {
+                value.contains("google.com") -> ENGINE_GOOGLE
+                value.contains("bing.com") -> ENGINE_BING
+                value.contains("baidu.com") -> ENGINE_BAIDU
+                value.contains("duckduckgo.com") -> ENGINE_DUCKDUCKGO
+                value.contains("yahoo.com") -> ENGINE_YAHOO
+                value.contains("yandex.com") -> ENGINE_YANDEX
+                value.contains("so.com") -> ENGINE_360
+                value.contains("sogou.com") -> ENGINE_SOGOU
+                else -> ENGINE_BING
+            }
+        }
         
     }
 
     val searchEngine: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[SEARCH_ENGINE_KEY] ?: ENGINE_BING
+        normalizeSearchEngine(prefs[SEARCH_ENGINE_KEY])
     }
 
     val userAgent: Flow<String> = context.dataStore.data.map { prefs ->
@@ -229,7 +249,17 @@ class UserPreferences(private val context: Context) {
 
     suspend fun setSearchEngine(engineUrl: String) {
         context.dataStore.edit { prefs ->
-            prefs[SEARCH_ENGINE_KEY] = engineUrl
+            prefs[SEARCH_ENGINE_KEY] = normalizeSearchEngine(engineUrl)
+        }
+    }
+
+    suspend fun migrateSearchEngine() {
+        context.dataStore.edit { prefs ->
+            val current = prefs[SEARCH_ENGINE_KEY]
+            val normalized = normalizeSearchEngine(current)
+            if (current != normalized) {
+                prefs[SEARCH_ENGINE_KEY] = normalized
+            }
         }
     }
 

@@ -6,6 +6,11 @@ local.properties
 
 # IDE and generated release artifacts
 .vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
 release/
 
 # Local scratch, reverse-engineering and visual-QA files

@@ -4,9 +4,11 @@ plugins {
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.compose) apply false
     alias(libs.plugins.ksp) apply false
+    idea
 }
 
 subprojects {
+    apply(plugin = "idea")
     tasks.configureEach {
         if (name.contains("AarMetadata", ignoreCase = true)) {
             enabled = false

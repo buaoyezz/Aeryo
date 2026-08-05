@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.http.SslError
-import android.os.Message
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.*
@@ -65,7 +64,9 @@ fun AeryoWebView(
                 settings.apply {
                     javaScriptEnabled = true
                     javaScriptCanOpenWindowsAutomatically = true
-                    setSupportMultipleWindows(true)
+                    // 将 target="_blank" 和 window.open() 作为当前标签的顶层导航处理，
+                    // 避免新窗口进入未挂载的 WebView 后停留在空白页。
+                    setSupportMultipleWindows(false)
                     domStorageEnabled = !tab.isIncognito
                     databaseEnabled = !tab.isIncognito
                     saveFormData = !tab.isIncognito
@@ -118,61 +119,6 @@ fun AeryoWebView(
                         }
                     }
 
-                    override fun onCreateWindow(
-                        view: WebView?,
-                        isDialog: Boolean,
-                        isUserGesture: Boolean,
-                        resultMsg: Message?
-                    ): Boolean {
-                        val sourceWebView = view ?: return false
-                        val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
-                        val popupWebView = WebView(sourceWebView.context).apply {
-                            settings.javaScriptEnabled = true
-                            setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
-                                onDownloadRequested(
-                                    url,
-                                    userAgent,
-                                    contentDisposition,
-                                    mimetype,
-                                    contentLength
-                                )
-                                destroy()
-                            }
-                            webViewClient = object : WebViewClient() {
-                                override fun shouldOverrideUrlLoading(
-                                    popup: WebView?,
-                                    url: String?
-                                ): Boolean {
-                                    val targetUrl = url ?: return false
-                                    if (isBrowserUrl(targetUrl)) {
-                                        sourceWebView.loadUrl(targetUrl)
-                                    } else {
-                                        onOpenExternalLink(targetUrl)
-                                    }
-                                    popup?.destroy()
-                                    return true
-                                }
-
-                                override fun shouldOverrideUrlLoading(
-                                    popup: WebView?,
-                                    request: WebResourceRequest?
-                                ): Boolean {
-                                    val targetUrl = request?.url?.toString() ?: return false
-                                    if (isBrowserUrl(targetUrl)) {
-                                        sourceWebView.loadUrl(targetUrl)
-                                    } else {
-                                        onOpenExternalLink(targetUrl)
-                                    }
-                                    popup?.destroy()
-                                    return true
-                                }
-                            }
-                        }
-                        transport.webView = popupWebView
-                        resultMsg.sendToTarget()
-                        return true
-                    }
-
                     override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                         if (view != null && callback != null) {
                             onCustomViewShow(view, callback)
@@ -194,6 +140,7 @@ fun AeryoWebView(
                             false
                         } else {
                             onOpenExternalLink(targetUrl)
+                            true
                         }
                     }
 
@@ -206,6 +153,7 @@ fun AeryoWebView(
                             false
                         } else {
                             onOpenExternalLink(targetUrl)
+                            true
                         }
                     }
 
