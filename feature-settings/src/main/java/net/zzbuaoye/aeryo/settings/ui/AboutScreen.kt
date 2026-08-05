@@ -44,7 +44,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private const val MIUIX_SOURCE_URL = "https://github.com/compose-miuix-ui/miuix"
 private const val MIUIX_DOCUMENTATION_URL = "https://compose-miuix-ui.github.io/miuix/dokka/index.html"
 private const val ZZBUAOYE_GITHUB_URL = "https://github.com/buaoyezz"
-private const val ZZBUAOYE_OFFICIAL_WEBSITE_URL = "https://aeryo.zzbuaoye.net/"
+private const val TABLER_ICONS_URL = "https://tabler.io/icons"
+// Official WebSite URL 
+// private const val ZZBUAOYE_OFFICIAL_WEBSITE_URL = "https://aeryo.zzbuaoye.net/"
 
 private val HyperListShape = RoundedCornerShape(20.dp)
 
@@ -105,11 +107,11 @@ fun AboutScreen(
 
                 item(key = "links") {
                     HyperListCard {
-                        HyperLinkRow(
-                            title = "官方网站",
-                            value = "aeryo.zzbuaoye.net",
-                            onClick = { uriHandler.openUri(ZZBUAOYE_OFFICIAL_WEBSITE_URL) }
-                        )
+                        // HyperLinkRow(
+                        //     title = "官方网站",
+                        //     value = "aeryo.zzbuaoye.net",
+                        //     onClick = { uriHandler.openUri(ZZBUAOYE_OFFICIAL_WEBSITE_URL) }
+                        // )
                         HyperLinkRow(
                             title = "GitHub",
                             value = "@buaoyezz",
@@ -125,6 +127,11 @@ fun AboutScreen(
                             value = "Miuix UI",
                             onClick = { uriHandler.openUri(MIUIX_DOCUMENTATION_URL) }
                         )
+                        HyperLinkRow(
+                            title = "Tabler 图标库",
+                            value = "Tabler Icons",
+                            onClick = { uriHandler.openUri(TABLER_ICONS_URL) }
+                        )
                     }
                 }
 
@@ -136,13 +143,13 @@ fun AboutScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Aeryo Browser",
+                            text = "Aeryo",
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             fontSize = MiuixTheme.textStyles.footnote2.fontSize,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "轻快 · 私密 · 无负担",
+                            text = "Powered by ZZBuAoYe",
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.70f),
                             fontSize = MiuixTheme.textStyles.footnote2.fontSize,
                             modifier = Modifier.padding(top = 3.dp)
