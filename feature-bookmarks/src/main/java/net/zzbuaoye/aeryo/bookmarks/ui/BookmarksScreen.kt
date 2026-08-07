@@ -36,20 +36,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.zzbuaoye.aeryo.bookmarks.data.BookmarkEntity
+import net.zzbuaoye.aeryo.core.ui.aeryoBackdropSource
+import net.zzbuaoye.aeryo.core.ui.aeryoBlurEffect
+import net.zzbuaoye.aeryo.core.ui.aeryoCardColor
+import net.zzbuaoye.aeryo.core.ui.aeryoTopBarColor
+import net.zzbuaoye.aeryo.core.ui.aeryoWindowColor
+import net.zzbuaoye.aeryo.core.ui.rememberAeryoWindowBackdrop
 import top.yukonga.miuix.kmp.anim.folmeSpring
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -58,7 +66,8 @@ import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
 import top.yukonga.miuix.kmp.icon.extended.Folder
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -72,31 +81,32 @@ fun BookmarksScreen(
     onBack: () -> Unit
 ) {
     var selectedSection by remember { mutableIntStateOf(0) }
+    val scrollBehavior = MiuixScrollBehavior()
+    val topBarBackdrop = rememberAeryoWindowBackdrop()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
+                modifier = Modifier.aeryoBlurEffect(topBarBackdrop),
+                color = topBarBackdrop.aeryoTopBarColor(),
                 title = "书签与收藏",
-                largeTitle = "书签与收藏",
-                subtitle = if (selectedSection == 0) {
-                    "${bookmarks.size} 个书签"
-                } else {
-                    "${favorites.size} 个收藏"
-                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MiuixIcons.Back, contentDescription = "返回")
                     }
-                }
+                },
+                scrollBehavior = scrollBehavior,
             )
         },
-        containerColor = MiuixTheme.colorScheme.background
+        containerColor = aeryoWindowColor(),
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .aeryoBackdropSource(topBarBackdrop)
                 .padding(top = padding.calculateTopPadding())
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             SavedTypeSelector(
                 selectedSection = selectedSection,
@@ -148,91 +158,14 @@ private fun SavedTypeSelector(
     favoriteCount: Int,
     onSelected: (Int) -> Unit
 ) {
-    Row(
+    TabRowWithContour(
+        tabs = listOf("书签  $bookmarkCount", "收藏  $favoriteCount"),
+        selectedTabIndex = selectedSection,
+        onTabSelected = onSelected,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        SavedTypeCard(
-            title = "书签",
-            count = bookmarkCount,
-            icon = MiuixIcons.Folder,
-            selected = selectedSection == 0,
-            onClick = { onSelected(0) },
-            modifier = Modifier.weight(1f)
-        )
-        SavedTypeCard(
-            title = "收藏",
-            count = favoriteCount,
-            icon = MiuixIcons.FavoritesFill,
-            selected = selectedSection == 1,
-            onClick = { onSelected(1) },
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-private fun SavedTypeCard(
-    title: String,
-    count: Int,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val contentColor = if (selected) {
-        MiuixTheme.colorScheme.onPrimaryContainer
-    } else {
-        MiuixTheme.colorScheme.onSurface
-    }
-    Card(
-        modifier = modifier.height(76.dp),
-        insideMargin = PaddingValues(0.dp),
-        colors = CardDefaults.defaultColors(
-            color = if (selected) {
-                MiuixTheme.colorScheme.primaryContainer
-            } else {
-                MiuixTheme.colorScheme.surfaceContainer
-            }
-        ),
-        pressFeedbackType = PressFeedbackType.Sink,
-        onClick = onClick
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (selected) MiuixTheme.colorScheme.primary else contentColor,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = title,
-                    color = contentColor,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "$count 项",
-                    color = if (selected) {
-                        MiuixTheme.colorScheme.primary
-                    } else {
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    },
-                    fontSize = 13.sp
-                )
-            }
-        }
-    }
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    )
 }
 
 @Composable
@@ -243,7 +176,10 @@ private fun SavedItemsList(
     bottomPadding: androidx.compose.ui.unit.Dp
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .scrollEndHaptic()
+            .overScrollVertical(),
         contentPadding = PaddingValues(
             start = 12.dp,
             end = 12.dp,
@@ -260,7 +196,7 @@ private fun SavedItemsList(
                         modifier = Modifier.fillMaxWidth(),
                         insideMargin = PaddingValues(0.dp),
                         colors = CardDefaults.defaultColors(
-                            color = MiuixTheme.colorScheme.surfaceContainer
+                            color = aeryoCardColor()
                         )
                     ) {
                         section.items.forEach { item ->
@@ -345,54 +281,44 @@ private fun SavedEmptyState(
     modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = modifier.padding(horizontal = 12.dp, vertical = 14.dp),
-        contentAlignment = Alignment.TopCenter
+        modifier = modifier.padding(horizontal = 28.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(0.dp),
-            colors = CardDefaults.defaultColors(
-                color = MiuixTheme.colorScheme.surfaceContainer
-            )
+        Column(
+            modifier = Modifier.padding(bottom = 42.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 30.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .size(54.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.11f)),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isBookmarks) MiuixIcons.Folder else MiuixIcons.FavoritesFill,
-                        contentDescription = null,
-                        tint = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    text = if (isBookmarks) "暂无书签" else "暂无收藏",
-                    color = MiuixTheme.colorScheme.onSurface,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = if (isBookmarks) {
-                        "从菜单中添加书签，稍后可以快速打开"
-                    } else {
-                        "点击地址栏末尾的心标收藏当前网页"
-                    },
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 14.sp
+                Icon(
+                    imageVector = if (isBookmarks) MiuixIcons.Folder else MiuixIcons.FavoritesFill,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(27.dp)
                 )
             }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = if (isBookmarks) "暂无书签" else "暂无收藏",
+                color = MiuixTheme.colorScheme.onSurface,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = if (isBookmarks) {
+                    "从菜单中添加书签，稍后可以快速打开"
+                } else {
+                    "点击地址栏末尾的心形图标收藏当前网页"
+                },
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 14.sp
+            )
         }
     }
 }

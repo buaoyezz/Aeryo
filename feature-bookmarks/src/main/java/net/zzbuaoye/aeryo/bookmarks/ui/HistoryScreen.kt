@@ -38,12 +38,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.zzbuaoye.aeryo.bookmarks.data.HistoryEntity
 import net.zzbuaoye.aeryo.bookmarks.data.PrivateHistoryEntity
+import net.zzbuaoye.aeryo.core.ui.aeryoBackdropSource
+import net.zzbuaoye.aeryo.core.ui.aeryoBlurEffect
+import net.zzbuaoye.aeryo.core.ui.aeryoCardColor
+import net.zzbuaoye.aeryo.core.ui.aeryoTopBarColor
+import net.zzbuaoye.aeryo.core.ui.aeryoWindowColor
+import net.zzbuaoye.aeryo.core.ui.rememberAeryoWindowBackdrop
 import top.yukonga.miuix.kmp.anim.folmeSpring
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -52,9 +59,11 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.InputField
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SearchBar
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
@@ -67,6 +76,8 @@ import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -93,6 +104,8 @@ fun HistoryScreen(
     var showClearConfirmation by remember { mutableStateOf(false) }
     var actionItem by remember { mutableStateOf<HistoryEntity?>(null) }
     var actionPrivateItem by remember { mutableStateOf<PrivateHistoryEntity?>(null) }
+    val scrollBehavior = MiuixScrollBehavior()
+    val topBarBackdrop = rememberAeryoWindowBackdrop()
 
     val activeTab = if (isIncognito) selectedTab else 0
 
@@ -124,97 +137,48 @@ fun HistoryScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            Column {
-                TopAppBar(
-                    title = if (activeTab == 1) "私密历史记录" else "历史记录",
-                    largeTitle = "浏览历史",
-                    subtitle = if (query.isBlank()) {
-                        "${activeHistoryList.size} 条记录"
-                    } else {
-                        "找到 ${filteredHistory.size} 条记录"
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(MiuixIcons.Back, contentDescription = "返回")
-                        }
-                    },
-                    actions = {
-                        if (activeHistoryList.isNotEmpty()) {
-                            IconButton(onClick = { showClearConfirmation = true }) {
-                                Icon(MiuixIcons.Delete, contentDescription = "清空历史")
-                            }
+            TopAppBar(
+                modifier = Modifier.aeryoBlurEffect(topBarBackdrop),
+                color = topBarBackdrop.aeryoTopBarColor(),
+                title = if (activeTab == 1) "私密历史" else "浏览历史",
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(MiuixIcons.Back, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    if (activeHistoryList.isNotEmpty()) {
+                        IconButton(onClick = { showClearConfirmation = true }) {
+                            Icon(MiuixIcons.Delete, contentDescription = "清空历史")
                         }
                     }
-                )
-                if (isIncognito) {
-                    // Segment Bar (常规 / 私密历史) - 仅在隐私模式下展示
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MiuixTheme.colorScheme.surfaceContainer)
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (selectedTab == 0) MiuixTheme.colorScheme.primaryContainer else MiuixTheme.colorScheme.surfaceContainer
-                                )
-                                .clickable { selectedTab = 0 },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "常规历史 (${history.size})",
-                                color = if (selectedTab == 0) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 14.sp
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (selectedTab == 1) MiuixTheme.colorScheme.primaryContainer else MiuixTheme.colorScheme.surfaceContainer
-                                )
-                                .clickable { selectedTab = 1 },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = MiuixIcons.Lock,
-                                    contentDescription = null,
-                                    tint = if (selectedTab == 1) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "私密历史 (${privateHistory.size})",
-                                    color = if (selectedTab == 1) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+                },
+                scrollBehavior = scrollBehavior,
+            )
         },
-        containerColor = MiuixTheme.colorScheme.background
+        containerColor = aeryoWindowColor(),
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .aeryoBackdropSource(topBarBackdrop)
                     .padding(top = padding.calculateTopPadding())
+                    .nestedScroll(scrollBehavior.nestedScrollConnection)
             ) {
+                if (isIncognito) {
+                    TabRowWithContour(
+                        tabs = listOf(
+                            "常规  ${history.size}",
+                            "私密  ${privateHistory.size}",
+                        ),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, top = 12.dp, end = 12.dp),
+                    )
+                }
                 SearchBar(
                     inputField = {
                         InputField(
@@ -227,7 +191,13 @@ fun HistoryScreen(
                         )
                     },
                     onExpandedChange = { searchExpanded = it },
-                    modifier = if (searchExpanded) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
+                    modifier = if (searchExpanded) {
+                        Modifier.fillMaxSize()
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                    },
                     expanded = searchExpanded,
                     outsideEndAction = {
                         Text(
@@ -427,7 +397,10 @@ private fun HistoryList(
             )
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scrollEndHaptic()
+                    .overScrollVertical(),
                 contentPadding = PaddingValues(
                     start = 12.dp,
                     end = 12.dp,
@@ -444,7 +417,7 @@ private fun HistoryList(
                                 modifier = Modifier.fillMaxWidth(),
                                 insideMargin = PaddingValues(0.dp),
                                 colors = CardDefaults.defaultColors(
-                                    color = MiuixTheme.colorScheme.surfaceContainer
+                                    color = aeryoCardColor()
                                 )
                             ) {
                                 section.items.forEach { item ->
