@@ -21,5 +21,6 @@ data class WebTab(
     var isSslSecure: Boolean = false,
     var preview: Bitmap? = null,
     var lastSearchQuery: String = "",
+    var navigationRequestId: Long = 0L,
     var webView: WebView? = null
 )

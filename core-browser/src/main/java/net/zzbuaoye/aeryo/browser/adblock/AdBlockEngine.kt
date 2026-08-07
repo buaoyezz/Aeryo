@@ -42,9 +42,11 @@ object AdBlockEngine {
 
     fun isAdRequest(request: WebResourceRequest): Boolean {
         if (!isEnabled) return false
+        if (request.isForMainFrame) return false
         val uri = request.url ?: return false
         val host = uri.host?.lowercase() ?: return false
-        if (AdBlockRuleManager.getAllowedDomains().any { host == it || host.endsWith(".$it") }) return false
+        val requestUrl = uri.toString()
+        if (AdBlockRuleManager.isAllowedRequest(host, requestUrl)) return false
         
         // Fast exact match or subdomain match
         val blockedDomains = AdBlockRuleManager.getBlockedDomains()
@@ -66,7 +68,7 @@ object AdBlockEngine {
             }
             dotIndex = tempHost.indexOf('.')
         }
-        if (AdBlockRuleManager.getBlockedUrlFragments().any { it.isNotBlank() && uri.toString().contains(it, true) }) {
+        if (AdBlockRuleManager.isBlockedRequest(host, requestUrl)) {
             blockedRequestCount++
             return true
         }

@@ -10,6 +10,7 @@ import android.webkit.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import net.zzbuaoye.aeryo.browser.adblock.AdBlockEngine
 import net.zzbuaoye.aeryo.browser.model.WebTab
 
@@ -49,13 +50,15 @@ fun AeryoWebView(
     modifier: Modifier = Modifier
 ) {
     var lastLoadedUrl by remember { mutableStateOf(tab.url) }
+    var handledNavigationRequestId by remember(tab.id) { mutableStateOf(tab.navigationRequestId) }
     val tabId = tab.id
 
     key(tab.id) {
         AndroidView(
             modifier = modifier,
             factory = { context ->
-                (tab.webView ?: WebView(context)).apply {
+                val webView = (tab.webView ?: WebView(context)).apply {
+                    (parent as? ViewGroup)?.removeView(this)
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -91,6 +94,7 @@ fun AeryoWebView(
                     clearHistory()
                     clearFormData()
                 }
+                CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, !blockThirdPartyCookies)
 
                 setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
@@ -100,22 +104,28 @@ fun AeryoWebView(
                 webChromeClient = object : WebChromeClient() {
                     override fun onProgressChanged(view: WebView?, newProgress: Int) {
                         onTabUpdated(tabId) { current ->
-                            current.copy(
-                                progress = newProgress.coerceIn(1, 100),
-                                isLoading = newProgress < 100
-                            )
+                            if (current.url == "about:blank") current else {
+                                current.copy(
+                                    progress = newProgress.coerceIn(1, 100),
+                                    isLoading = newProgress < 100
+                                )
+                            }
                         }
                     }
 
                     override fun onReceivedTitle(view: WebView?, title: String?) {
                         if (!title.isNullOrEmpty()) {
-                            onTabUpdated(tabId) { current -> current.copy(title = title) }
+                            onTabUpdated(tabId) { current ->
+                                if (current.url == "about:blank") current else current.copy(title = title)
+                            }
                         }
                     }
 
                     override fun onReceivedIcon(view: WebView?, icon: Bitmap?) {
                         if (icon != null) {
-                            onTabUpdated(tabId) { current -> current.copy(favicon = icon) }
+                            onTabUpdated(tabId) { current ->
+                                if (current.url == "about:blank") current else current.copy(favicon = icon)
+                            }
                         }
                     }
 
@@ -136,6 +146,10 @@ fun AeryoWebView(
                         url: String?
                     ): Boolean {
                         val targetUrl = url ?: return false
+                        canonicalBingSearchUrl(targetUrl)?.let { canonicalUrl ->
+                            view?.loadUrl(canonicalUrl)
+                            return true
+                        }
                         return if (isBrowserUrl(targetUrl)) {
                             false
                         } else {
@@ -149,6 +163,12 @@ fun AeryoWebView(
                         request: WebResourceRequest?
                     ): Boolean {
                         val targetUrl = request?.url?.toString() ?: return false
+                        if (request.isForMainFrame) {
+                            canonicalBingSearchUrl(targetUrl)?.let { canonicalUrl ->
+                                view?.loadUrl(canonicalUrl)
+                                return true
+                            }
+                        }
                         return if (isBrowserUrl(targetUrl)) {
                             false
                         } else {
@@ -169,47 +189,46 @@ fun AeryoWebView(
                             }
                         }
                         if (request != null && AdBlockEngine.isAdRequest(request)) {
+                            android.util.Log.d("AeryoWebView", "AdBlock blocked request: ${request.url}")
                             return AdBlockEngine.createEmptyResponse()
                         }
                         return super.shouldInterceptRequest(view, request)
                     }
 
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                        android.util.Log.d("AeryoWebView", "onPageStarted: url=$url")
                         val isSsl = url?.startsWith("https://") == true
                         val newUrl = url ?: ""
                         lastLoadedUrl = newUrl
                         onTabUpdated(tabId) { current ->
-                            if (current.url == "about:blank" && newUrl != "about:blank") {
-                                current
-                            } else {
+                            if (current.url == "about:blank" && newUrl != "about:blank") current else {
                                 current.copy(
-                                url = newUrl,
-                                progress = 5,
-                                isLoading = true,
-                                isSslSecure = isSsl,
-                                canGoBack = view?.canGoBack() == true,
-                                canGoForward = view?.canGoForward() == true
-                            )
+                                    url = newUrl,
+                                    progress = 5,
+                                    isLoading = true,
+                                    isSslSecure = isSsl,
+                                    canGoBack = view?.canGoBack() == true,
+                                    canGoForward = view?.canGoForward() == true
+                                )
                             }
                         }
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
+                        android.util.Log.d("AeryoWebView", "onPageFinished: url=$url, lastLoadedUrl=$lastLoadedUrl")
                         val finishedUrl = url ?: ""
-                        if (finishedUrl != lastLoadedUrl) return
+                        lastLoadedUrl = finishedUrl
                         val isSsl = url?.startsWith("https://") == true
                         onTabUpdated(tabId) { current ->
-                            if (current.url == "about:blank" && finishedUrl != "about:blank") {
-                                current
-                            } else {
+                            if (current.url == "about:blank" && finishedUrl != "about:blank") current else {
                                 current.copy(
-                                url = finishedUrl,
-                                progress = 100,
-                                isLoading = false,
-                                isSslSecure = isSsl,
-                                canGoBack = view?.canGoBack() == true,
-                                canGoForward = view?.canGoForward() == true
-                            )
+                                    url = finishedUrl,
+                                    progress = 100,
+                                    isLoading = false,
+                                    isSslSecure = isSsl,
+                                    canGoBack = view?.canGoBack() == true,
+                                    canGoForward = view?.canGoForward() == true
+                                )
                             }
                         }
                         // 注入 CSS 广告拦截脚本与自定义 UserScript 引擎
@@ -238,10 +257,14 @@ fun AeryoWebView(
                         isReload: Boolean
                     ) {
                         onTabUpdated(tabId) { current ->
-                            current.copy(
-                                canGoBack = view?.canGoBack() == true,
-                                canGoForward = view?.canGoForward() == true
-                            )
+                            if (current.url == "about:blank") {
+                                current.copy(canGoBack = false, canGoForward = false)
+                            } else {
+                                current.copy(
+                                    canGoBack = view?.canGoBack() == true,
+                                    canGoForward = view?.canGoForward() == true
+                                )
+                            }
                         }
                     }
 
@@ -262,9 +285,31 @@ fun AeryoWebView(
                     loadUrl(tab.url)
                 }
             }
+
+            SwipeRefreshLayout(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                setColorSchemeColors(0xFF4D8DFF.toInt())
+                setOnChildScrollUpCallback { _, _ ->
+                    webView.scrollY > 0
+                }
+                setOnRefreshListener {
+                    webView.reload()
+                }
+                addView(webView)
+            }
             },
-            update = { webView ->
+            update = { swipeLayout ->
+                val webView = (0 until swipeLayout.childCount)
+                    .map { swipeLayout.getChildAt(it) }
+                    .filterIsInstance<WebView>()
+                    .firstOrNull() ?: return@AndroidView
+
                 tab.webView = webView
+                swipeLayout.isRefreshing = tab.isLoading && tab.url != "about:blank"
+                swipeLayout.isEnabled = tab.url != "about:blank"
                 if (tab.isDesktopMode) {
                     if (webView.settings.userAgentString != CHROME_DESKTOP_UA) {
                         webView.settings.userAgentString = CHROME_DESKTOP_UA
@@ -277,13 +322,15 @@ fun AeryoWebView(
                     }
                 }
 
-                if (tab.url == "about:blank" && lastLoadedUrl != "about:blank") {
-                    lastLoadedUrl = "about:blank"
-                    webView.stopLoading()
-                    webView.loadUrl("about:blank")
-                } else if (tab.url != "about:blank" && tab.url != lastLoadedUrl) {
+                if (tab.navigationRequestId != handledNavigationRequestId) {
+                    handledNavigationRequestId = tab.navigationRequestId
                     lastLoadedUrl = tab.url
-                    webView.loadUrl(tab.url)
+                    webView.stopLoading()
+                    if (tab.url == "about:blank") {
+                        webView.loadUrl("about:blank")
+                    } else if (webView.url != tab.url) {
+                        webView.loadUrl(tab.url)
+                    }
                 }
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     webView.settings.forceDark = if (nightModeEnabled) android.webkit.WebSettings.FORCE_DARK_ON else android.webkit.WebSettings.FORCE_DARK_OFF
@@ -296,5 +343,30 @@ fun AeryoWebView(
 
 private fun isBrowserUrl(url: String): Boolean {
     val scheme = runCatching { android.net.Uri.parse(url).scheme?.lowercase() }.getOrNull()
-    return scheme == "http" || scheme == "https" || scheme == "aeryo" || scheme == "about"
+    return scheme == "http" || scheme == "https" || scheme == "aeryo" || scheme == "about" || scheme == "javascript" || scheme == "data" || scheme == "blob"
+}
+
+private fun canonicalBingSearchUrl(url: String): String? {
+    val uri = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return null
+    if (!uri.isHierarchical) return null
+
+    val host = uri.host?.lowercase().orEmpty()
+    if (host != "www.bing.com" && host != "cn.bing.com") return null
+
+    val query = runCatching { uri.getQueryParameter("q") }.getOrNull()
+        ?.takeIf(String::isNotBlank)
+        ?: return null
+    val marketCount = runCatching { uri.getQueryParameters("mkt").size }.getOrDefault(0)
+    val isStableSearchPath = host == "www.bing.com" && uri.path == "/search" && marketCount <= 1
+    if (isStableSearchPath) return null
+
+    return android.net.Uri.Builder()
+        .scheme("https")
+        .authority("www.bing.com")
+        .path("search")
+        .appendQueryParameter("setlang", "zh-hans")
+        .appendQueryParameter("cc", "cn")
+        .appendQueryParameter("q", query)
+        .build()
+        .toString()
 }
