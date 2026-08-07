@@ -1,10 +1,6 @@
 package net.zzbuaoye.aeryo.settings.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,41 +11,71 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import net.zzbuaoye.aeryo.settings.ui.effect.BgEffectBackground
+import net.zzbuaoye.aeryo.settings.ui.effect.ColorBlendToken
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.blur.BlendColorEntry
+import top.yukonga.miuix.kmp.blur.BlurBlendMode
+import top.yukonga.miuix.kmp.blur.BlurDefaults
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
+import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import androidx.compose.ui.graphics.BlendMode as ComposeBlendMode
 
 private const val MIUIX_SOURCE_URL = "https://github.com/compose-miuix-ui/miuix"
 private const val MIUIX_DOCUMENTATION_URL = "https://compose-miuix-ui.github.io/miuix/dokka/index.html"
 private const val ZZBUAOYE_GITHUB_URL = "https://github.com/buaoyezz"
+private const val AERYO_GITHUB_URL = "https://github.com/buaoyezz/Aeryo"
 private const val TABLER_ICONS_URL = "https://tabler.io/icons"
-// Official WebSite URL 
-// private const val ZZBUAOYE_OFFICIAL_WEBSITE_URL = "https://aeryo.zzbuaoye.net/"
 
-private val HyperListShape = RoundedCornerShape(20.dp)
-
+/**
+ * 页面骨架直接对应 Miuix 官方 example/AboutPage：
+ * SmallTopAppBar 随 Logo 区滚动渐入，Backdrop 只在完全折叠后启用。
+ */
 @Composable
 fun AboutScreen(
     appIcon: Painter,
@@ -57,104 +83,313 @@ fun AboutScreen(
     versionCode: Long,
     packageName: String,
     webViewVersion: String,
-    androidVersion: String,
-    onBack: () -> Unit
+    versionChannelName: String,
+    onBack: () -> Unit,
+) {
+    val lazyListState = rememberLazyListState()
+    val topAppBarScrollBehavior = MiuixScrollBehavior()
+    val scrollProgress by remember {
+        derivedStateOf {
+            when {
+                lazyListState.firstVisibleItemIndex > 0 -> 1f
+                else -> {
+                    val spacer = lazyListState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { it.key == "logoSpacer" }
+                    if (spacer != null && spacer.size > 0) {
+                        (lazyListState.firstVisibleItemScrollOffset.toFloat() / spacer.size)
+                            .coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                }
+            }
+        }
+    }
+    val topBarBackdrop = rememberMiuixWindowBackdrop()
+    val blurActive = topBarBackdrop != null && scrollProgress >= 0.999f
+    val barColor = when {
+        blurActive -> Color.Transparent
+        scrollProgress >= 0.999f -> miuixWindowBackgroundColor()
+        else -> Color.Transparent
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            MiuixBlurredBar(topBarBackdrop, blurActive) {
+                SmallTopAppBar(
+                    title = "关于 Aeryo",
+                    scrollBehavior = topAppBarScrollBehavior,
+                    color = barColor,
+                    titleColor = MiuixTheme.colorScheme.onSurface.copy(
+                        alpha = ((scrollProgress - 0.35f) / 0.65f).coerceIn(0f, 1f),
+                    ),
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(MiuixIcons.Back, contentDescription = "返回")
+                        }
+                    },
+                )
+            }
+        },
+        containerColor = miuixWindowBackgroundColor(),
+    ) { innerPadding ->
+        Box(
+            modifier = topBarBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier,
+        ) {
+            AboutContent(
+                padding = innerPadding,
+                appIcon = appIcon,
+                versionName = versionName,
+                versionCode = versionCode,
+                packageName = packageName,
+                webViewVersion = webViewVersion,
+                versionChannelName = versionChannelName,
+                lazyListState = lazyListState,
+                scrollBehavior = topAppBarScrollBehavior,
+                scrollProgress = scrollProgress,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutContent(
+    padding: PaddingValues,
+    appIcon: Painter,
+    versionName: String,
+    versionCode: Long,
+    packageName: String,
+    webViewVersion: String,
+    versionChannelName: String,
+    lazyListState: LazyListState,
+    scrollBehavior: ScrollBehavior,
+    scrollProgress: Float,
 ) {
     val uriHandler = LocalUriHandler.current
+    val contentBackdrop = rememberMiuixWindowBackdrop()
+    val shaderSupported = remember { isRuntimeShaderSupported() }
+    val dynamicBackground = remember(shaderSupported) { mutableStateOf(shaderSupported) }
+    val isDark = miuixWindowBackgroundColor().luminance() < 0.5f
+    val cardBlend = if (isDark) {
+        ColorBlendToken.Overlay_Thin_Light
+    } else {
+        ColorBlendToken.Pured_Regular_Light
+    }
+    val logoBlend = remember(isDark) {
+        if (isDark) {
+            listOf(
+                BlendColorEntry(Color(0xE6A1A1A1), BlurBlendMode.ColorDodge),
+                BlendColorEntry(Color(0x4DE6E6E6), BlurBlendMode.LinearLight),
+                BlendColorEntry(Color(0xFF1AF500), BlurBlendMode.Lab),
+            )
+        } else {
+            listOf(
+                BlendColorEntry(Color(0xCC4A4A4A), BlurBlendMode.ColorBurn),
+                BlendColorEntry(Color(0xFF4F4F4F), BlurBlendMode.LinearLight),
+                BlendColorEntry(Color(0xFF1AF200), BlurBlendMode.Lab),
+            )
+        }
+    }
+    val density = LocalDensity.current
+    var logoHeightDp by remember { mutableStateOf(300.dp) }
+    val versionProgress = ((scrollProgress - 0.05f) / 0.15f).coerceIn(0f, 1f)
+    val projectProgress = ((scrollProgress - 0.20f) / 0.15f).coerceIn(0f, 1f)
+    val iconProgress = ((scrollProgress - 0.35f) / 0.15f).coerceIn(0f, 1f)
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        HyperOsBackground()
-
-        Column(modifier = Modifier.fillMaxSize()) {
-            HyperBackBar(onBack = onBack)
-
-            LazyColumn(
+    BgEffectBackground(
+        dynamicBackground = dynamicBackground.value,
+        isOs3Effect = true,
+        isFullSize = true,
+        modifier = Modifier.fillMaxSize(),
+        bgModifier = contentBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier,
+        alpha = { 1f - scrollProgress },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    top = padding.calculateTopPadding() + 92.dp,
+                    start = 12.dp,
+                    end = 12.dp,
+                )
+                .onSizeChanged { size ->
+                    with(density) { logoHeightDp = size.height.toDp() }
+                },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(88.dp),
+            ) {
+                Image(
+                    painter = appIcon,
+                    contentDescription = "Aeryo 图标",
+                    // Match InstallerX's Miuix About header: keep an 88 dp layout box,
+                    // but oversize adaptive-icon artwork so its safe-zone padding does not
+                    // make the visible mark look tiny.
+                    modifier = Modifier
+                        .requiredSize(160.dp)
+                        .graphicsLayer {
+                            // Keep the animation layer at the artwork's full size. Applying
+                            // alpha to the 88 dp layout box creates an offscreen layer that
+                            // trims the Aeryo stroke by a couple of pixels while scrolling.
+                            alpha = 1f - iconProgress
+                            scaleX = 1f - iconProgress * 0.05f
+                            scaleY = 1f - iconProgress * 0.05f
+                        }
+                        .then(
+                            if (contentBackdrop != null) {
+                                Modifier.textureBlur(
+                                    backdrop = contentBackdrop,
+                                    shape = RoundedCornerShape(16.dp),
+                                    blurRadius = 200f,
+                                    colors = BlurDefaults.blurColors(blendColors = logoBlend),
+                                    contentBlendMode = ComposeBlendMode.DstIn,
+                                )
+                            } else {
+                                Modifier
+                            },
+                        ),
+                )
+            }
+            Text(
+                text = "Aeryo",
+                modifier = Modifier
+                    .padding(top = 12.dp, bottom = 5.dp)
+                    .graphicsLayer {
+                        alpha = 1f - projectProgress
+                        scaleX = 1f - projectProgress * 0.05f
+                        scaleY = 1f - projectProgress * 0.05f
+                    }
+                    .then(
+                        if (contentBackdrop != null) {
+                            Modifier.textureBlur(
+                                backdrop = contentBackdrop,
+                                shape = RoundedCornerShape(16.dp),
+                                blurRadius = 150f,
+                                colors = BlurDefaults.blurColors(blendColors = logoBlend),
+                                contentBlendMode = ComposeBlendMode.DstIn,
+                            )
+                        } else {
+                            Modifier
+                        },
+                    ),
+                color = MiuixTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Bold,
+                fontSize = 35.sp,
+            )
+            Text(
+                text = "v$versionName · build $versionCode",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .widthIn(max = 680.dp),
-                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                item(key = "hero") {
-                    HyperBrandHero(
-                        appIcon = appIcon,
-                        versionName = versionName,
-                        versionCode = versionCode
+                    .graphicsLayer {
+                        alpha = 1f - versionProgress
+                        scaleX = 1f - versionProgress * 0.05f
+                        scaleY = 1f - versionProgress * 0.05f
+                    },
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        LazyColumn(
+            state = lazyListState,
+            modifier = Modifier
+                .fillMaxSize()
+                .scrollEndHaptic()
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                top = padding.calculateTopPadding(),
+                end = 12.dp,
+                bottom = padding.calculateBottomPadding() + 24.dp,
+            ),
+            overscrollEffect = null,
+        ) {
+            item(key = "logoSpacer") {
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(logoHeightDp + 218.dp),
+                )
+            }
+
+            item(key = "author") {
+                SmallTitle(text = "作者")
+                AboutGlassCard(contentBackdrop, cardBlend) {
+                    AboutLinkPreference(
+                        title = "ZZBuAoYe",
+                        summary = "@buaoyezz · 核心开发者",
+                        onClick = { uriHandler.openUri(ZZBUAOYE_GITHUB_URL) },
                     )
                 }
+            }
 
-                item(key = "application-info") {
-                    HyperListCard {
-                        HyperInfoRow(title = "应用名称", value = "Aeryo Browser")
-                        HyperInfoRow(title = "应用版本", value = versionName)
-                        HyperInfoRow(title = "构建版本", value = versionCode.toString())
-                        HyperInfoRow(title = "Android 版本", value = androidVersion)
-                        HyperInfoRow(title = "WebView 版本", value = webViewVersion)
-                    }
+            item(key = "project") {
+                SmallTitle(text = "项目")
+                AboutGlassCard(contentBackdrop, cardBlend) {
+                    AboutLinkPreference(
+                        title = "Aeryo",
+                        summary = "项目主页 · GitHub",
+                        onClick = { uriHandler.openUri(AERYO_GITHUB_URL) },
+                    )
+                    AboutLinkPreference(
+                        title = "Miuix 文档",
+                        summary = "官方组件文档",
+                        onClick = { uriHandler.openUri(MIUIX_DOCUMENTATION_URL) },
+                    )
                 }
+            }
 
-                item(key = "package-and-privacy") {
-                    HyperListCard {
-                        HyperInfoRow(title = "应用包名", value = packageName)
-                        HyperInfoRow(
-                            title = "本地数据",
-                            value = "仅保存在此设备"
-                        )
-                    }
+            item(key = "open_source") {
+                SmallTitle(text = "开源许可")
+                AboutGlassCard(contentBackdrop, cardBlend) {
+                    AboutLinkPreference(
+                        title = "MIUIX KMP",
+                        summary = "HyperOS / MIUI 风格 Compose UI 组件库",
+                        onClick = { uriHandler.openUri(MIUIX_SOURCE_URL) },
+                    )
+                    AboutLinkPreference(
+                        title = "Tabler Icons",
+                        summary = "矢量图标库",
+                        onClick = { uriHandler.openUri(TABLER_ICONS_URL) },
+                    )
                 }
+            }
 
-                item(key = "links") {
-                    HyperListCard {
-                        // HyperLinkRow(
-                        //     title = "官方网站",
-                        //     value = "aeryo.zzbuaoye.net",
-                        //     onClick = { uriHandler.openUri(ZZBUAOYE_OFFICIAL_WEBSITE_URL) }
-                        // )
-                        HyperLinkRow(
-                            title = "GitHub",
-                            value = "@buaoyezz",
-                            onClick = { uriHandler.openUri(ZZBUAOYE_GITHUB_URL) }
-                        )
-                        HyperLinkRow(
-                            title = "Miuix UI",
-                            value = "Apache-2.0",
-                            onClick = { uriHandler.openUri(MIUIX_SOURCE_URL) }
-                        )
-                        HyperLinkRow(
-                            title = "组件库文档",
-                            value = "Miuix UI",
-                            onClick = { uriHandler.openUri(MIUIX_DOCUMENTATION_URL) }
-                        )
-                        HyperLinkRow(
-                            title = "Tabler 图标库",
-                            value = "Tabler Icons",
-                            onClick = { uriHandler.openUri(TABLER_ICONS_URL) }
-                        )
-                    }
+            item(key = "build_info") {
+                SmallTitle(text = "系统与构建信息")
+                AboutGlassCard(contentBackdrop, cardBlend) {
+                    AboutInfoPreference(
+                        title = "更新通道",
+                        value = versionChannelName.ifBlank { "Stable" },
+                    )
+                    AboutInfoPreference(title = "包名", value = packageName)
+                    AboutInfoPreference(title = "系统 WebView 版本", value = webViewVersion)
                 }
+            }
 
-                item(key = "footer") {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp, bottom = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Aeryo",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontSize = MiuixTheme.textStyles.footnote2.fontSize,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Powered by ZZBuAoYe",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.70f),
-                            fontSize = MiuixTheme.textStyles.footnote2.fontSize,
-                            modifier = Modifier.padding(top = 3.dp)
-                        )
-                    }
+            item(key = "copyright") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "Aeryo Browser",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Text(
+                        text = "GNU General Public License v3.0",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
             }
         }
@@ -162,224 +397,70 @@ fun AboutScreen(
 }
 
 @Composable
-private fun HyperOsBackground() {
-    val colors = MiuixTheme.colorScheme
-
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        drawRect(color = colors.background)
-        drawRect(
-            brush = Brush.verticalGradient(
-                colorStops = arrayOf(
-                    0.00f to colors.background,
-                    0.18f to colors.primaryContainer.copy(alpha = 0.82f),
-                    0.41f to colors.secondaryContainer.copy(alpha = 0.88f),
-                    0.63f to colors.tertiaryContainer.copy(alpha = 0.72f),
-                    0.84f to colors.background.copy(alpha = 0.92f),
-                    1.00f to colors.background
-                ),
-                startY = 0f,
-                endY = size.height
-            )
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    colors.surface.copy(alpha = 0.58f),
-                    colors.tertiaryContainer.copy(alpha = 0.22f),
-                    Color.Transparent
-                ),
-                center = Offset(size.width * 0.76f, size.height * 0.08f),
-                radius = size.width * 0.92f
-            ),
-            radius = size.width * 0.92f,
-            center = Offset(size.width * 0.76f, size.height * 0.08f)
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    colors.primary.copy(alpha = 0.18f),
-                    Color.Transparent
-                ),
-                center = Offset(size.width * 0.16f, size.height * 0.40f),
-                radius = size.width * 0.76f
-            ),
-            radius = size.width * 0.76f,
-            center = Offset(size.width * 0.16f, size.height * 0.40f)
-        )
-    }
-}
-
-@Composable
-private fun HyperBackBar(onBack: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-
-    Row(
+private fun AboutGlassCard(
+    backdrop: LayerBackdrop?,
+    blendColors: List<BlendColorEntry>,
+    content: @Composable () -> Unit,
+) {
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .height(52.dp)
-            .padding(start = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                imageVector = MiuixIcons.Back,
-                contentDescription = "返回",
-                tint = colors.primary
-            )
-        }
-    }
-}
-
-@Composable
-private fun HyperBrandHero(
-    appIcon: Painter,
-    versionName: String,
-    versionCode: Long
-) {
-    val colors = MiuixTheme.colorScheme
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(276.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Image(
-            painter = appIcon,
-            contentDescription = "Aeryo 应用标志",
-            modifier = Modifier.size(192.dp)
-        )
-        Text(
-            text = "Aeryo",
-            color = colors.onBackground,
-            style = MiuixTheme.textStyles.title2,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        Text(
-            text = "$versionName  ·  $versionCode",
-            color = colors.onSurfaceVariantSummary,
-            style = MiuixTheme.textStyles.body2,
-            modifier = Modifier.padding(top = 5.dp)
-        )
-    }
-}
-
-@Composable
-private fun HyperListCard(content: @Composable () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    val surfaceColor = colors.surface.copy(alpha = 0.86f)
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(HyperListShape)
-            .background(surfaceColor)
-            .border(
-                width = 0.75.dp,
-                color = colors.onSurface.copy(alpha = 0.045f),
-                shape = HyperListShape
-            )
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            content()
-        }
-    }
-}
-
-@Composable
-private fun HyperInfoRow(
-    title: String,
-    value: String
-) {
-    HyperBaseRow(
-        title = title,
-        value = value,
-        showChevron = false,
-        onClick = null
-    )
-}
-
-@Composable
-private fun HyperLinkRow(
-    title: String,
-    value: String,
-    onClick: () -> Unit
-) {
-    HyperBaseRow(
-        title = title,
-        value = value,
-        showChevron = true,
-        onClick = onClick
-    )
-}
-
-@Composable
-private fun HyperBaseRow(
-    title: String,
-    value: String,
-    showChevron: Boolean,
-    onClick: (() -> Unit)?
-) {
-    val colors = MiuixTheme.colorScheme
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
+            .padding(bottom = 12.dp)
             .then(
-                if (onClick != null) {
-                    Modifier.clickable(onClick = onClick)
+                if (backdrop != null) {
+                    Modifier.textureBlur(
+                        backdrop = backdrop,
+                        shape = RoundedCornerShape(16.dp),
+                        blurRadius = 60f,
+                        colors = BlurDefaults.blurColors(blendColors = blendColors),
+                    )
                 } else {
                     Modifier
-                }
-            )
-            .padding(start = 17.dp, end = 14.dp, top = 15.dp, bottom = 15.dp),
-        verticalAlignment = Alignment.CenterVertically
+                },
+            ),
+        colors = CardDefaults.defaultColors(
+            color = if (backdrop != null) Color.Transparent else MiuixTheme.colorScheme.surfaceContainer,
+            contentColor = MiuixTheme.colorScheme.onSurfaceContainer,
+        ),
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun AboutLinkPreference(
+    title: String,
+    summary: String,
+    onClick: () -> Unit,
+) {
+    ArrowPreference(
+        title = title,
+        summary = summary,
+        summaryColor = BasicComponentDefaults.summaryColor(),
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun AboutInfoPreference(title: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = title,
-            color = colors.onSurface,
-            style = MiuixTheme.textStyles.body1,
-            modifier = Modifier.weight(1f)
+            style = MiuixTheme.textStyles.subtitle,
+            color = MiuixTheme.colorScheme.onSurface,
         )
         Text(
             text = value,
-            color = colors.onSurfaceVariantSummary,
             style = MiuixTheme.textStyles.body2,
-            textAlign = TextAlign.End,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1.28f)
-        )
-        if (showChevron) {
-            Spacer(modifier = Modifier.size(7.dp))
-            HyperChevron()
-        }
-    }
-}
-
-@Composable
-private fun HyperChevron() {
-    val chevronColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
-
-    Canvas(modifier = Modifier.size(width = 7.dp, height = 13.dp)) {
-        val strokeWidth = 1.2.dp.toPx()
-        drawLine(
-            color = chevronColor,
-            start = Offset(size.width * 0.22f, size.height * 0.16f),
-            end = Offset(size.width * 0.76f, size.height * 0.50f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
-        )
-        drawLine(
-            color = chevronColor,
-            start = Offset(size.width * 0.76f, size.height * 0.50f),
-            end = Offset(size.width * 0.22f, size.height * 0.84f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
         )
     }
 }
