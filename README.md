@@ -15,7 +15,7 @@ A simple, clean, and comfortable way to browse the web.
   &nbsp;&middot;&nbsp;
   <a href="#license">License</a>
   <br>
-  <a href="./README_ZH.md">简体中文</a>
+  <a href="./README_ZH.md">Chinese Version</a>
 </p>
 
 
