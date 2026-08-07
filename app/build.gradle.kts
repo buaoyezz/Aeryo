@@ -6,7 +6,7 @@ import java.util.Locale
 // ==============================================================================
 // Aeryo Version Information
 // ==============================================================================
-val defaultAeryoVersion = "1.0.0"
+val defaultAeryoVersion = "1.0.2"
 val defaultAeryoChannel = "Stable" // 可选: Stable, Beta, Alpha, RC 等
 val defaultAeryoBuildRevision = "1"
 
