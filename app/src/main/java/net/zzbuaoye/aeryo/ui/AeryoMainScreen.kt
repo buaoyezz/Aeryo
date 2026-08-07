@@ -276,21 +276,33 @@ fun AeryoMainScreen() {
 
     var lastPrivacyAuthTime by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
 
+    val authenticatePrivacy: ((() -> Unit) -> Unit) = { onSuccess ->
+        val currentActivity = activity
+        if (currentActivity == null) {
+            android.widget.Toast.makeText(context, "无法启动隐私验证", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            BiometricAuthHelper.authenticate(
+                activity = currentActivity,
+                title = "隐私验证",
+                subtitle = "请验证设备指纹或凭据以继续",
+                onSuccess = {
+                    lastPrivacyAuthTime = System.currentTimeMillis()
+                    onSuccess()
+                },
+                onError = { message ->
+                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+    }
+
     val requestPrivacyAuth: (() -> Unit) -> Unit = { onSuccess ->
         val now = System.currentTimeMillis()
-        if (privacyBiometricEnabled && activity != null) {
+        if (privacyBiometricEnabled) {
             if (now - lastPrivacyAuthTime < 60_000L) {
                 onSuccess()
             } else {
-                BiometricAuthHelper.authenticate(
-                    activity = activity,
-                    title = "隐私验证",
-                    subtitle = "请验证设备指纹或凭据以继续",
-                    onSuccess = {
-                        lastPrivacyAuthTime = System.currentTimeMillis()
-                        onSuccess()
-                    }
-                )
+                authenticatePrivacy(onSuccess)
             }
         } else {
             onSuccess()
@@ -1040,8 +1052,14 @@ fun AeryoMainScreen() {
                     scope.launch { preferences.setThemeKeyColor(color) }
                 },
                 onPrivacyBiometricToggled = { enabled ->
-                    requestPrivacyAuth {
-                        scope.launch { preferences.setPrivacyBiometricEnabled(enabled) }
+                    if (enabled) {
+                        authenticatePrivacy {
+                            scope.launch { preferences.setPrivacyBiometricEnabled(true) }
+                        }
+                    } else {
+                        requestPrivacyAuth {
+                            scope.launch { preferences.setPrivacyBiometricEnabled(false) }
+                        }
                     }
                 },
                 onDoNotTrackToggled = { enabled ->
