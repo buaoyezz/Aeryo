@@ -82,7 +82,7 @@ fun DownloadConfirmationDialog(
                 text = if (useBuiltIn) {
                     "将使用内置下载，可在下载管理中暂停或继续。"
                 } else {
-                    "将交给系统下载服务，可在系统通知中查看进度。"
+                    "将交给系统下载服务，可在系统通知中查看进度，但系统任务不支持暂停。"
                 },
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 fontSize = 13.sp,

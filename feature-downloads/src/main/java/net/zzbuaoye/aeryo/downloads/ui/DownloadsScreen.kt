@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,13 +40,21 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.pow
 import net.zzbuaoye.aeryo.downloads.model.DownloadBackend
 import net.zzbuaoye.aeryo.downloads.model.DownloadItem
+import net.zzbuaoye.aeryo.core.ui.aeryoBackdropSource
+import net.zzbuaoye.aeryo.core.ui.aeryoBlurEffect
+import net.zzbuaoye.aeryo.core.ui.aeryoCardColor
+import net.zzbuaoye.aeryo.core.ui.aeryoTopBarColor
+import net.zzbuaoye.aeryo.core.ui.aeryoWindowColor
+import net.zzbuaoye.aeryo.core.ui.rememberAeryoWindowBackdrop
 import top.yukonga.miuix.kmp.anim.folmeSpring
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
@@ -56,6 +65,8 @@ import top.yukonga.miuix.kmp.icon.extended.Download
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 @Composable
 fun DownloadsScreen(
@@ -72,28 +83,25 @@ fun DownloadsScreen(
         !it.isActiveDownload() && it.status != DownloadManager.STATUS_PAUSED
     }
     val totalSpeed = activeDownloads.sumOf(DownloadItem::speedBytesPerSecond)
+    val scrollBehavior = MiuixScrollBehavior()
+    val topBarBackdrop = rememberAeryoWindowBackdrop()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = "下载",
-                largeTitle = "下载管理",
-                subtitle = when {
-                    activeDownloads.isNotEmpty() && totalSpeed > 0L ->
-                        "${activeDownloads.size} 个任务下载中 · ${formatRate(totalSpeed)}"
-                    activeDownloads.isNotEmpty() -> "${activeDownloads.size} 个任务准备中"
-                    downloads.isEmpty() -> "暂时没有下载任务"
-                    else -> "${downloads.size} 个下载任务"
-                },
+                modifier = Modifier.aeryoBlurEffect(topBarBackdrop),
+                color = topBarBackdrop.aeryoTopBarColor(),
+                title = "下载管理",
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MiuixIcons.Back, contentDescription = "返回")
                     }
-                }
+                },
+                scrollBehavior = scrollBehavior,
             )
         },
-        containerColor = MiuixTheme.colorScheme.background
+        containerColor = aeryoWindowColor(),
     ) { padding ->
         AnimatedContent(
             targetState = downloads.isEmpty(),
@@ -110,13 +118,19 @@ fun DownloadsScreen(
                 )
             },
             label = "download-content",
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .aeryoBackdropSource(topBarBackdrop)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) { isEmpty ->
             if (isEmpty) {
                 EmptyDownloads(modifier = Modifier.fillMaxSize().padding(padding))
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .scrollEndHaptic()
+                        .overScrollVertical(),
                     contentPadding = PaddingValues(
                         start = 12.dp,
                         end = 12.dp,
@@ -195,7 +209,7 @@ private fun DownloadSummaryCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(0.dp),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainerHigh)
+        colors = CardDefaults.defaultColors(color = aeryoCardColor())
     ) {
         Row(
             modifier = Modifier
@@ -247,25 +261,7 @@ private fun DownloadSummaryCard(
 
 @Composable
 private fun SectionTitle(title: String, summary: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp, start = 4.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title,
-            color = MiuixTheme.colorScheme.onSurface,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = summary,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            fontSize = 12.sp
-        )
-    }
+    SmallTitle(text = "$title · $summary")
 }
 
 @Composable
@@ -306,7 +302,7 @@ private fun DownloadCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         insideMargin = PaddingValues(0.dp),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer),
+        colors = CardDefaults.defaultColors(color = aeryoCardColor()),
         pressFeedbackType = PressFeedbackType.Sink,
         onClick = { if (complete) onOpen() }
     ) {
@@ -388,7 +384,7 @@ private fun DownloadCard(
                     item.backend == DownloadBackend.BUILT_IN && (paused || failed) ->
                         TextButton(text = "继续", onClick = onResume)
                     else -> Text(
-                        text = "系统管理",
+                        text = "系统不支持暂停",
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         fontSize = 12.sp
                     )
@@ -401,26 +397,29 @@ private fun DownloadCard(
 @Composable
 private fun EmptyDownloads(modifier: Modifier = Modifier) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier.padding(bottom = 42.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Box(
                 modifier = Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(MiuixTheme.colorScheme.surfaceContainerHigh),
+                    .size(54.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.11f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = MiuixIcons.Download,
                     contentDescription = null,
                     tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(27.dp)
                 )
             }
             Text(
                 text = "暂无下载任务",
                 color = MiuixTheme.colorScheme.onSurface,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 16.dp)
             )
             Text(
