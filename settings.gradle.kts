@@ -22,6 +22,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "Aeryo"
 include(":app")
+include(":core-ui")
 include(":core-browser")
 include(":feature-bookmarks")
 include(":feature-downloads")
