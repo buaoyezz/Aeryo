@@ -3,19 +3,26 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-// Aeryo Version
+// ==============================================================================
+// Aeryo Version Information
+// ==============================================================================
+val defaultAeryoVersion = "1.0.0"
+val defaultAeryoChannel = "Stable" // 可选: Stable, Beta, Alpha, RC 等
+val defaultAeryoBuildRevision = "1"
+
+// 优先读取 Gradle 命令行/属性参数 (-PaeryoVersion / -PaeryoChannel)，若无则使用上述默认值
 val aeryoVersion = providers.gradleProperty("aeryoVersion")
-    .orElse("1.0.0")
+    .orElse(defaultAeryoVersion)
     .get()
     .removePrefix("V")
-// Aeryo Channel
+
 val aeryoChannel = providers.gradleProperty("aeryoChannel")
-    .orElse("")
+    .orElse(defaultAeryoChannel)
     .get()
     .trim()
-// Aeryo Build Revision
+
 val aeryoBuildRevision = providers.gradleProperty("aeryoBuildRevision")
-    .orElse("1")
+    .orElse(defaultAeryoBuildRevision)
     .get()
     .toIntOrNull()
     ?: error("aeryoBuildRevision must be a positive integer")
@@ -30,7 +37,7 @@ val aeryoBuildDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
 val aeryoBuildLabel = "aeryo$aeryoBuildDate.$aeryoBuildRevision"
 val aeryoAndroidVersionCode =
     aeryoBuildDate.toInt() * 100 + aeryoBuildRevision
-val aeryoAndroidVersionName = if (aeryoChannel.isBlank()) {
+val aeryoAndroidVersionName = if (aeryoChannel.isBlank() || aeryoChannel.equals("Stable", ignoreCase = true)) {
     aeryoVersion
 } else {
     "$aeryoVersion-${aeryoChannel.lowercase(Locale.ROOT)}"
@@ -120,6 +127,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core-ui"))
     implementation(project(":core-browser"))
     implementation(project(":feature-bookmarks"))
     implementation(project(":feature-downloads"))

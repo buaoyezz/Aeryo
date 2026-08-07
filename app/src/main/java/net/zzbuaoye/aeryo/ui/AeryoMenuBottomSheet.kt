@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -54,6 +55,8 @@ import sh.calvin.reorderable.rememberReorderableLazyGridState
 
 import top.yukonga.miuix.kmp.anim.folmeSpring
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -91,6 +94,7 @@ import top.yukonga.miuix.kmp.icon.extended.Theme
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.pressable
 import net.zzbuaoye.aeryo.settings.data.UserPreferences
 
@@ -185,7 +189,11 @@ fun AeryoMenuBottomSheet(
 
     OverlayBottomSheet(
         show = show,
-        title = null,
+        title = when {
+            showingSearchEnginePicker -> "更换搜索引擎"
+            editing -> "调整菜单"
+            else -> "浏览器菜单"
+        },
         onDismissRequest = {
             if (showingSearchEnginePicker) {
                 showingSearchEnginePicker = false
@@ -512,30 +520,21 @@ fun AeryoMenuBottomSheet(
                         }
                     }
                     
-                    Box(
+                    Button(
+                        onClick = { editItem.onClick() },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 20.dp)
-                            .padding(top = 12.dp, bottom = 4.dp)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(MiuixTheme.colorScheme.primary)
-                            .clickable { editItem.onClick() },
-                        contentAlignment = Alignment.Center
+                            .padding(top = 12.dp, bottom = 4.dp),
                     ) {
-                        Text(
-                            text = "完成",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MiuixTheme.colorScheme.onPrimary
-                        )
+                        Text(text = "完成")
                     }
                 } else {
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(132.dp)
+                            .height(148.dp)
                     ) { page ->
                         MenuPage(
                             items = pages[page],
@@ -606,11 +605,16 @@ private fun MenuPage(
     selectedItemId: String?,
     onItemClick: (MenuItem) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         repeat(2) { rowIndex ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 repeat(MenuColumnCount) { columnIndex ->
                     val item = items.getOrNull(rowIndex * MenuColumnCount + columnIndex)
@@ -618,7 +622,7 @@ private fun MenuPage(
                         Spacer(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(66.dp)
+                                .height(70.dp)
                         )
                     } else {
                         MenuCommand(
@@ -669,43 +673,44 @@ private fun MenuCommand(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
     val contentColor = if (item.active == true || selected) {
         MiuixTheme.colorScheme.primary
     } else {
         MiuixTheme.colorScheme.onSurface
     }
+    val backgroundColor = if (item.active == true || selected) {
+        MiuixTheme.colorScheme.primaryContainer
+    } else {
+        MiuixTheme.colorScheme.surfaceContainerHigh
+    }
 
-    Column(
+    Card(
         modifier = modifier
-            .height(66.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Transparent)
-            .border(
-                width = if (selected) 2.dp else 0.dp,
-                color = if (selected) MiuixTheme.colorScheme.primary else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .pressable(interactionSource)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .height(70.dp),
+        insideMargin = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        cornerRadius = 14.dp,
+        colors = CardDefaults.defaultColors(color = backgroundColor),
+        pressFeedbackType = PressFeedbackType.Sink,
+        onClick = onClick,
     ) {
-        Icon(
-            imageVector = item.icon,
-            contentDescription = item.title,
-            modifier = Modifier.size(24.dp),
-            tint = contentColor
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = item.title,
-            fontSize = 11.sp,
-            color = contentColor
-        )
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = item.icon,
+                contentDescription = item.title,
+                modifier = Modifier.size(23.dp),
+                tint = contentColor
+            )
+            Spacer(modifier = Modifier.height(5.dp))
+            Text(
+                text = item.title,
+                fontSize = 11.sp,
+                fontWeight = if (item.active == true) FontWeight.SemiBold else FontWeight.Normal,
+                color = contentColor
+            )
+        }
     }
 }

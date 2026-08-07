@@ -10,8 +10,6 @@ import android.webkit.CookieManager
 import android.webkit.WebStorage
 import android.webkit.WebViewDatabase
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -51,6 +49,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -79,9 +78,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
@@ -101,7 +98,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
-import coil.compose.rememberAsyncImagePainter
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +118,7 @@ import net.zzbuaoye.aeryo.browser.adblock.AdBlockEngine
 import net.zzbuaoye.aeryo.browser.adblock.AdBlockRuleManager
 import net.zzbuaoye.aeryo.browser.model.WebTab
 import net.zzbuaoye.aeryo.browser.ui.AeryoWebView
+import net.zzbuaoye.aeryo.core.ui.aeryoWindowColor
 import net.zzbuaoye.aeryo.browser.ui.captureWebViewPreview
 import net.zzbuaoye.aeryo.downloads.AeryoDownloadManager
 import net.zzbuaoye.aeryo.downloads.model.DownloadItem
@@ -159,6 +156,7 @@ import top.yukonga.miuix.kmp.shader.RuntimeShader
 import top.yukonga.miuix.kmp.shader.asBrush
 import top.yukonga.miuix.kmp.shader.isRenderEffectSupported
 import top.yukonga.miuix.kmp.shader.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.ByteArrayOutputStream
 import java.io.BufferedReader
@@ -186,7 +184,8 @@ fun AeryoMainScreen() {
     val preferences = remember { UserPreferences(context) }
     val recordedHistoryUrls = remember { mutableMapOf<String, String>() }
     val packageInfo = remember(context) {
-        context.packageManager.getPackageInfo(context.packageName, 0)
+        val flags = android.content.pm.PackageManager.GET_META_DATA
+        context.packageManager.getPackageInfo(context.packageName, flags)
     }
     val appVersionName = packageInfo.versionName.orEmpty().ifBlank { "1.0.0" }
     @Suppress("DEPRECATION")
@@ -194,6 +193,19 @@ fun AeryoMainScreen() {
         packageInfo.longVersionCode
     } else {
         packageInfo.versionCode.toLong()
+    }
+    val versionChannelName = remember(packageInfo, appVersionName) {
+        val metadata = packageInfo.applicationInfo?.metaData
+        val rawChannel = metadata?.getString("net.zzbuaoye.aeryo.CHANNEL").orEmpty().trim()
+        val inferredChannel = rawChannel.ifBlank {
+            when {
+                appVersionName.contains("alpha", ignoreCase = true) -> "Alpha"
+                appVersionName.contains("beta", ignoreCase = true) -> "Beta"
+                appVersionName.contains("rc", ignoreCase = true) -> "RC"
+                else -> ""
+            }
+        }
+        inferredChannel.ifBlank { "Stable" }
     }
     val webViewVersion = remember {
         WebView.getCurrentWebViewPackage()?.versionName ?: "系统 WebView"
@@ -210,10 +222,11 @@ fun AeryoMainScreen() {
     val searchEngine by preferences.searchEngine.collectAsState(initial = UserPreferences.ENGINE_BING)
     val adBlockEnabled by preferences.adBlockEnabled.collectAsState(initial = true)
     val adBlockSources by preferences.adBlockSources.collectAsState(initial = emptyList())
+    val adBlockAutoUpdateInterval by preferences.adBlockAutoUpdateInterval.collectAsState(initial = UserPreferences.AD_BLOCK_AUTO_UPDATE_3D)
     val menuOrder by preferences.menuOrder.collectAsState(initial = emptyList())
     val addressBarAnimationEnabled by preferences.addressBarAnimationEnabled.collectAsState(initial = true)
     val nightModeEnabled by preferences.nightModeEnabled.collectAsState(initial = false)
-    val downloadMode by preferences.downloadMode.collectAsState(initial = UserPreferences.DOWNLOAD_MODE_SYSTEM)
+    val downloadMode by preferences.downloadMode.collectAsState(initial = UserPreferences.DOWNLOAD_MODE_BUILT_IN)
     val tabViewMode by preferences.tabViewMode.collectAsState(initial = UserPreferences.TAB_VIEW_MODE_GRID)
     val effectiveTabViewMode = when (tabViewMode) {
         UserPreferences.TAB_VIEW_MODE_HALF -> UserPreferences.TAB_VIEW_MODE_HALF
@@ -224,19 +237,11 @@ fun AeryoMainScreen() {
     val themeKeyColor by preferences.themeKeyColor.collectAsState(initial = UserPreferences.DEFAULT_THEME_KEY_COLOR)
     val glassEffectEnabled by preferences.glassEffectEnabled.collectAsState(initial = true)
     val blurEffectEnabled by preferences.blurEffectEnabled.collectAsState(initial = false)
-    val logoVariant by preferences.logoVariant.collectAsState(initial = UserPreferences.LOGO_VARIANT_DEFAULT)
-    val logoStrokeWidth by preferences.logoStrokeWidth.collectAsState(initial = UserPreferences.DEFAULT_LOGO_STROKE_WIDTH)
-    val logoCustomColor by preferences.logoCustomColor.collectAsState(initial = UserPreferences.DEFAULT_LOGO_CUSTOM_COLOR)
-    val logoCustomColorEnabled by preferences.logoCustomColorEnabled.collectAsState(initial = false)
-    val logoCustomImageUri by preferences.logoCustomImageUri.collectAsState(initial = "")
-    val logoCustomText by preferences.logoCustomText.collectAsState(initial = "A")
-    val logoOffsetX by preferences.logoOffsetX.collectAsState(initial = 0f)
-    val logoOffsetY by preferences.logoOffsetY.collectAsState(initial = 0f)
-    val launcherIconVariant by preferences.launcherIconVariant.collectAsState(initial = "")
     val effectiveGlassEffectEnabled = glassEffectEnabled && supportsLiquidGlass
     val effectiveBlurEffectEnabled = blurEffectEnabled && supportsBackgroundBlur
 
     LaunchedEffect(Unit) {
+        restoreDefaultLauncherIcon(context)
         preferences.migrateSearchEngine()
     }
 
@@ -253,25 +258,6 @@ fun AeryoMainScreen() {
     val clearOnExit by preferences.clearOnExit.collectAsState(initial = false)
     val privateHistory by dao.getAllPrivateHistory().collectAsState(initial = emptyList())
     val activity = context as? FragmentActivity
-    val customLogoPainter = rememberAsyncImagePainter(model = logoCustomImageUri.takeIf(String::isNotBlank))
-
-    LaunchedEffect(launcherIconVariant) {
-        if (launcherIconVariant.isNotBlank()) {
-            applyLauncherIcon(context, launcherIconVariant)
-        }
-    }
-
-    val customLogoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            scope.launch {
-                preferences.setLogoCustomImageUri(uri.toString())
-                preferences.setLogoVariant(UserPreferences.LOGO_VARIANT_CUSTOM_IMAGE)
-            }
-        }
-    }
 
     var showMenu by remember { mutableStateOf(false) }
     var showTabs by remember { mutableStateOf(false) }
@@ -359,10 +345,31 @@ fun AeryoMainScreen() {
                     it.copy(
                         url = target,
                         progress = 5,
-                        isLoading = true
+                        isLoading = true,
+                        navigationRequestId = it.navigationRequestId + 1
                     )
                 }
             }
+        }
+    }
+
+    val navigateHome: () -> Unit = {
+        focusManager.clearFocus()
+        showFind = false
+        showMenu = false
+        currentTab?.webView?.stopLoading()
+        tabManager.updateCurrentTab {
+            it.copy(
+                url = "about:blank",
+                title = "主页",
+                progress = 0,
+                isLoading = false,
+                canGoBack = false,
+                canGoForward = false,
+                isSslSecure = false,
+                preview = null,
+                navigationRequestId = it.navigationRequestId + 1
+            )
         }
     }
 
@@ -424,6 +431,38 @@ fun AeryoMainScreen() {
         AdBlockRuleManager.loadEnabledRules(context, enabledIds)
     }
 
+    LaunchedEffect(adBlockEnabled, adBlockSources, adBlockAutoUpdateInterval) {
+        if (adBlockEnabled && adBlockAutoUpdateInterval != UserPreferences.AD_BLOCK_AUTO_UPDATE_NEVER) {
+            val intervalMs = when (adBlockAutoUpdateInterval) {
+                UserPreferences.AD_BLOCK_AUTO_UPDATE_12H -> 12 * 3600 * 1000L
+                UserPreferences.AD_BLOCK_AUTO_UPDATE_3D -> 3 * 24 * 3600 * 1000L
+                UserPreferences.AD_BLOCK_AUTO_UPDATE_7D -> 7 * 24 * 3600 * 1000L
+                UserPreferences.AD_BLOCK_AUTO_UPDATE_15D -> 15 * 24 * 3600 * 1000L
+                UserPreferences.AD_BLOCK_AUTO_UPDATE_30D -> 30 * 24 * 3600 * 1000L
+                else -> Long.MAX_VALUE
+            }
+            val now = System.currentTimeMillis()
+            val expiredSources = adBlockSources.filter { it.isEnabled && (it.lastUpdated == 0L || now - it.lastUpdated > intervalMs) }
+            if (expiredSources.isNotEmpty()) {
+                var updatedSources = adBlockSources.toList()
+                var hasUpdatedAny = false
+                for (source in expiredSources) {
+                    val success = AdBlockRuleManager.downloadRuleFile(context, source.id, source.url)
+                    if (success) {
+                        updatedSources = updatedSources.map {
+                            if (it.id == source.id) it.copy(lastUpdated = System.currentTimeMillis()) else it
+                        }
+                        hasUpdatedAny = true
+                    }
+                }
+                if (hasUpdatedAny) {
+                    preferences.setAdBlockSources(updatedSources)
+                    AdBlockRuleManager.loadEnabledRules(context, updatedSources.filter { it.isEnabled }.map { it.id })
+                }
+            }
+        }
+    }
+
     DisposableEffect(clearOnExit) {
         onDispose {
             if (clearOnExit) {
@@ -460,9 +499,11 @@ fun AeryoMainScreen() {
         }
     }
 
+    val hasCurrentPage = currentTab?.url?.let { it.isNotBlank() && it != "about:blank" } == true
     BackHandler(
         enabled = showMenu || showTabs || showBookmarks || showHistory || showDownloads ||
-            showSettings || showAdBlockSettings || showAbout || showFind || currentTab?.canGoBack == true
+            showSettings || showAdBlockSettings || showAbout || showFind ||
+            currentTab?.canGoBack == true || hasCurrentPage
     ) {
         when {
             showMenu -> showMenu = false
@@ -477,7 +518,10 @@ fun AeryoMainScreen() {
                 currentTab?.webView?.clearMatches()
                 showFind = false
             }
-            currentTab?.canGoBack == true -> currentTab.webView?.goBack()
+            currentTab?.canGoBack == true || hasCurrentPage -> {
+                val navigated = currentTab?.webView?.let(::safeGoBack) == true
+                if (!navigated) navigateHome()
+            }
         }
     }
 
@@ -557,33 +601,15 @@ fun AeryoMainScreen() {
                     tab = currentTab,
                     tabCount = tabs.size,
                     onBack = {
-                        currentTab?.let { tab ->
-                            tab.webView?.takeIf(WebView::canGoBack)?.goBack()
-                        }
+                        val navigated = currentTab?.webView?.let(::safeGoBack) == true
+                        if (!navigated) navigateHome()
                     },
                     onForward = {
                         currentTab?.let { tab ->
                             tab.webView?.takeIf(WebView::canGoForward)?.goForward()
                         }
                     },
-                    onHome = {
-                        focusManager.clearFocus()
-                        showFind = false
-                        showMenu = false
-                        currentTab?.webView?.stopLoading()
-                        tabManager.updateCurrentTab {
-                            it.copy(
-                                url = "about:blank",
-                                title = "主页",
-                                progress = 0,
-                                isLoading = false,
-                                canGoBack = false,
-                                canGoForward = false,
-                                isSslSecure = false,
-                                preview = null
-                            )
-                        }
-                    },
+                    onHome = navigateHome,
                     onTabs = {
                         addressExpanded = false
                         showTabs = true
@@ -611,7 +637,11 @@ fun AeryoMainScreen() {
                     }
                 )
             },
-            containerColor = if (currentTab?.isIncognito == true) androidx.compose.ui.graphics.Color(0xFF0F0E17) else MiuixTheme.colorScheme.background
+            containerColor = if (currentTab?.isIncognito == true) {
+                androidx.compose.ui.graphics.Color(0xFF0F0E17)
+            } else {
+                aeryoWindowColor()
+            }
         ) { innerPadding ->
             Box(
                 modifier = Modifier
@@ -643,14 +673,6 @@ fun AeryoMainScreen() {
                         currentTab == null -> Unit
                         isHome -> AeryoHomeScreen(
                             animationEnabled = addressBarAnimationEnabled,
-                            logoVariant = logoVariant,
-                            logoStrokeWidth = logoStrokeWidth,
-                            logoCustomColor = logoCustomColor,
-                            logoCustomColorEnabled = logoCustomColorEnabled,
-                            logoCustomImageUri = logoCustomImageUri,
-                            logoCustomText = logoCustomText,
-                            logoOffsetX = logoOffsetX,
-                            logoOffsetY = logoOffsetY,
                             glassEffectEnabled = effectiveGlassEffectEnabled,
                             blurEffectEnabled = effectiveBlurEffectEnabled,
                             searchEngine = searchEngine,
@@ -785,7 +807,8 @@ fun AeryoMainScreen() {
                                 it.copy(
                                     url = target,
                                     progress = 5,
-                                    isLoading = true
+                                    isLoading = true,
+                                    navigationRequestId = it.navigationRequestId + 1
                                 )
                             }
                         }
@@ -821,6 +844,53 @@ fun AeryoMainScreen() {
                             pendingDownloadRequest = null
                             duplicateDownload = null
                         }
+                    )
+                }
+
+                OverlayBottomSheet(
+                    show = showTabs && effectiveTabViewMode == UserPreferences.TAB_VIEW_MODE_HALF,
+                    title = null,
+                    onDismissRequest = { showTabs = false }
+                ) {
+                    TabSwitcherBottomSheetContent(
+                        tabs = tabs,
+                        activeTabIndex = activeTabIndex,
+                        tabViewMode = effectiveTabViewMode,
+                        onTabViewModeChanged = { mode ->
+                            scope.launch { preferences.setTabViewMode(mode) }
+                        },
+                        onTabSelected = { index ->
+                            val targetTab = tabs.getOrNull(index)
+                            if (targetTab?.isIncognito == true) {
+                                requestPrivacyAuth {
+                                    tabManager.selectTab(index)
+                                    showTabs = false
+                                }
+                            } else {
+                                tabManager.selectTab(index)
+                                showTabs = false
+                            }
+                        },
+                        onTabClosed = tabManager::closeTab,
+                        onNewTab = { isIncognito ->
+                            if (isIncognito) {
+                                requestPrivacyAuth {
+                                    tabManager.createNewTab(isIncognito = true)
+                                    showTabs = false
+                                }
+                            } else {
+                                tabManager.createNewTab(isIncognito = false)
+                                showTabs = false
+                            }
+                        },
+                        onCloseAllTabs = {
+                            tabManager.closeAllTabs()
+                        },
+                        onCloseIncognitoTabs = {
+                            tabManager.closeIncognitoTabs()
+                            android.widget.Toast.makeText(context, "所有无痕痕迹与会话已安全抹去", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        onDismiss = { showTabs = false }
                     )
                 }
             }
@@ -872,98 +942,6 @@ fun AeryoMainScreen() {
                 },
                 onDismiss = { showTabs = false }
             )
-        }
-
-        AnimatedVisibility(
-            visible = showTabs && effectiveTabViewMode == UserPreferences.TAB_VIEW_MODE_HALF,
-            enter = slideInVertically(
-                initialOffsetY = { it },
-                animationSpec = folmeSpring(damping = 0.9f, response = 0.36f)
-            ) + fadeIn(animationSpec = tween(180)),
-            exit = slideOutVertically(
-                targetOffsetY = { it },
-                animationSpec = folmeSpring(damping = 1f, response = 0.3f)
-            ) + fadeOut(animationSpec = tween(140)),
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(1f)
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .background(Color.Black.copy(alpha = 0.32f))
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { showTabs = false })
-                        }
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(
-                            RoundedCornerShape(
-                                topStart = 24.dp,
-                                topEnd = 24.dp,
-                                bottomStart = 0.dp,
-                                bottomEnd = 0.dp
-                            )
-                        )
-                        .background(MiuixTheme.colorScheme.surface)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 8.dp, bottom = 2.dp)
-                            .align(Alignment.CenterHorizontally)
-                            .width(36.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f))
-                    )
-
-                    TabSwitcherBottomSheetContent(
-                        tabs = tabs,
-                        activeTabIndex = activeTabIndex,
-                        tabViewMode = effectiveTabViewMode,
-                        onTabViewModeChanged = { mode ->
-                            scope.launch { preferences.setTabViewMode(mode) }
-                        },
-                        onTabSelected = { index ->
-                            val targetTab = tabs.getOrNull(index)
-                            if (targetTab?.isIncognito == true) {
-                                requestPrivacyAuth {
-                                    tabManager.selectTab(index)
-                                    showTabs = false
-                                }
-                            } else {
-                                tabManager.selectTab(index)
-                                showTabs = false
-                            }
-                        },
-                        onTabClosed = tabManager::closeTab,
-                        onNewTab = { isIncognito ->
-                            if (isIncognito) {
-                                requestPrivacyAuth {
-                                    tabManager.createNewTab(isIncognito = true)
-                                    showTabs = false
-                                }
-                            } else {
-                                tabManager.createNewTab(isIncognito = false)
-                                showTabs = false
-                            }
-                        },
-                        onCloseAllTabs = {
-                            tabManager.closeAllTabs()
-                        },
-                        onCloseIncognitoTabs = {
-                            tabManager.closeIncognitoTabs()
-                            android.widget.Toast.makeText(context, "所有无痕痕迹与会话已安全抹去", android.widget.Toast.LENGTH_SHORT).show()
-                        },
-                        onDismiss = { showTabs = false }
-                    )
-                }
-            }
         }
 
         AnimatedVisibility(
@@ -1040,19 +1018,6 @@ fun AeryoMainScreen() {
                 currentThemeMode = themeMode,
                 currentThemePalette = themePalette,
                 currentThemeKeyColor = themeKeyColor,
-                currentGlassEffectEnabled = glassEffectEnabled,
-                currentBlurEffectEnabled = blurEffectEnabled,
-                currentLogoVariant = logoVariant,
-                currentLogoStrokeWidth = logoStrokeWidth,
-                currentLogoCustomColor = logoCustomColor,
-                currentLogoCustomColorEnabled = logoCustomColorEnabled,
-                currentLogoCustomText = logoCustomText,
-                currentLogoOffsetX = logoOffsetX,
-                currentLogoOffsetY = logoOffsetY,
-                currentLauncherIconVariant = launcherIconVariant,
-                supportsLiquidGlass = supportsLiquidGlass,
-                supportsBackgroundBlur = supportsBackgroundBlur,
-                customLogoPainter = customLogoPainter.takeIf { logoCustomImageUri.isNotBlank() },
                 currentPrivacyBiometricEnabled = privacyBiometricEnabled,
                 currentDoNotTrackEnabled = doNotTrackEnabled,
                 currentBlockThirdPartyCookies = blockThirdPartyCookies,
@@ -1073,38 +1038,6 @@ fun AeryoMainScreen() {
                 },
                 onThemeKeyColorChanged = { color ->
                     scope.launch { preferences.setThemeKeyColor(color) }
-                },
-                onGlassEffectToggled = { enabled ->
-                    scope.launch { preferences.setGlassEffectEnabled(enabled) }
-                },
-                onBlurEffectToggled = { enabled ->
-                    scope.launch { preferences.setBlurEffectEnabled(enabled) }
-                },
-                onLogoVariantChanged = { variant ->
-                    scope.launch { preferences.setLogoVariant(variant) }
-                },
-                onLogoStrokeWidthChanged = { width ->
-                    scope.launch { preferences.setLogoStrokeWidth(width) }
-                },
-                onLogoCustomColorChanged = { color ->
-                    scope.launch { preferences.setLogoCustomColor(color) }
-                },
-                onLogoCustomColorEnabledChanged = { enabled ->
-                    scope.launch { preferences.setLogoCustomColorEnabled(enabled) }
-                },
-                onPickCustomLogo = { customLogoPicker.launch(arrayOf("image/*")) },
-                onLogoCustomTextChanged = { text ->
-                    scope.launch { preferences.setLogoCustomText(text) }
-                },
-                onLogoOffsetXChanged = { offset ->
-                    scope.launch { preferences.setLogoOffsetX(offset) }
-                },
-                onLogoOffsetYChanged = { offset ->
-                    scope.launch { preferences.setLogoOffsetY(offset) }
-                },
-                onLauncherIconVariantChanged = { variant ->
-                    applyLauncherIcon(context, variant)
-                    scope.launch { preferences.setLauncherIconVariant(variant) }
                 },
                 onPrivacyBiometricToggled = { enabled ->
                     requestPrivacyAuth {
@@ -1155,9 +1088,11 @@ fun AeryoMainScreen() {
             AdBlockSettingsScreen(
                 currentAdBlockEnabled = adBlockEnabled,
                 sources = adBlockSources,
+                currentAutoUpdateInterval = adBlockAutoUpdateInterval,
                 blockedRequestCount = AdBlockEngine.getBlockedRequestCount(),
                 onAdBlockToggled = { scope.launch { preferences.setAdBlockEnabled(it) } },
                 onSourcesUpdated = { scope.launch { preferences.setAdBlockSources(it) } },
+                onAutoUpdateIntervalChanged = { scope.launch { preferences.setAdBlockAutoUpdateInterval(it) } },
                 onRequestUpdateAll = {
                     scope.launch {
                         val enabledSources = adBlockSources.filter { it.isEnabled }
@@ -1202,7 +1137,7 @@ fun AeryoMainScreen() {
                 versionCode = appVersionCode,
                 packageName = context.packageName,
                 webViewVersion = webViewVersion,
-                androidVersion = "Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}",
+                versionChannelName = versionChannelName,
                 onBack = { showAbout = false }
             )
         }
@@ -1421,15 +1356,22 @@ private fun BrowserAddressBar(
             suggestions = fetchSearchSuggestions(searchEngine, text)
         }
     }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (isIncognito) androidx.compose.ui.graphics.Color(0xFF181524)
-                else MiuixTheme.colorScheme.background
-            )
-            .statusBarsPadding()
+    AeryoGlassSurface(
+        liquidGlassEnabled = glassEffectEnabled,
+        blurEnabled = blurEffectEnabled,
+        shape = androidx.compose.ui.graphics.RectangleShape,
+        modifier = Modifier.fillMaxWidth()
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    if (isIncognito) androidx.compose.ui.graphics.Color(0xFF181524).copy(alpha = if (glassEffectEnabled || blurEffectEnabled) 0.88f else 1f)
+                    else if (glassEffectEnabled || blurEffectEnabled) Color.Transparent
+                    else MiuixTheme.colorScheme.background
+                )
+                .statusBarsPadding()
+        ) {
         AeryoSearchInputField(
             query = text,
             onQueryChange = onTextChange,
@@ -1562,6 +1504,7 @@ private fun BrowserAddressBar(
         }
     }
 }
+}
 
 @Composable
 private fun BrowserNavigationBar(
@@ -1575,89 +1518,99 @@ private fun BrowserNavigationBar(
     onMenu: () -> Unit
 ) {
     val isIncognito = tab?.isIncognito == true
-    NavigationBar(
-        modifier = Modifier.height(48.dp),
-        color = if (isIncognito) androidx.compose.ui.graphics.Color(0xFF14121E) else MiuixTheme.colorScheme.surface,
-        showDivider = false,
-        mode = NavigationBarDisplayMode.IconOnly
+    val canGoBack = tab?.canGoBack == true ||
+        tab?.url?.let { it.isNotBlank() && it != "about:blank" } == true
+    val canGoForward = tab?.canGoForward == true
+    val activeColor = if (isIncognito) androidx.compose.ui.graphics.Color.White else MiuixTheme.colorScheme.onSurface
+    val disabledColor = if (isIncognito) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.3f) else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .background(if (isIncognito) androidx.compose.ui.graphics.Color(0xFF14121E) else MiuixTheme.colorScheme.surface)
     ) {
-        NavigationBarItem(
-            selected = false,
-            enabled = tab?.canGoBack == true,
-            onClick = onBack,
-            icon = MiuixIcons.ChevronBackward,
-            label = "后退"
-        )
-        NavigationBarItem(
-            selected = false,
-            enabled = tab?.canGoForward == true,
-            onClick = onForward,
-            icon = MiuixIcons.ChevronForward,
-            label = "前进"
-        )
-        NavigationBarItem(
-            selected = false,
-            onClick = onHome,
-            icon = MiuixIcons.Home,
-            label = "主页"
-        )
-        NavigationBarItem(
-            selected = false,
-            onClick = onTabs,
-            icon = MiuixIcons.GridView,
-            label = "标签页",
-            badge = {
-                AnimatedVisibility(
-                    visible = tabCount > 1,
-                    enter = fadeIn(animationSpec = tween(180)) +
-                        scaleIn(
-                            initialScale = 0.6f,
-                            animationSpec = folmeSpring(damping = 0.76f, response = 0.34f)
-                        ),
-                    exit = fadeOut(animationSpec = tween(120)) +
-                        scaleOut(targetScale = 0.6f, animationSpec = tween(140))
-                ) {
-                    Badge(
-                        containerColor = if (isIncognito) androidx.compose.ui.graphics.Color(0xFF9C27B0) else MiuixTheme.colorScheme.surfaceContainerHighest,
-                        contentColor = if (isIncognito) androidx.compose.ui.graphics.Color.White else MiuixTheme.colorScheme.onSurface
-                    ) {
-                        AnimatedContent(
-                            targetState = tabCount.coerceAtMost(99),
-                            transitionSpec = {
-                                (
-                                    slideInVertically { it } + fadeIn(animationSpec = tween(150))
-                                    ).togetherWith(
-                                    slideOutVertically { -it } + fadeOut(animationSpec = tween(100))
-                                )
-                            },
-                            label = "tab-count"
-                        ) { count ->
-                            Text(text = count.toString())
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                enabled = canGoBack,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.ChevronBackward,
+                    contentDescription = "后退",
+                    tint = if (canGoBack) activeColor else disabledColor
+                )
+            }
+            IconButton(
+                onClick = onForward,
+                enabled = canGoForward,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.ChevronForward,
+                    contentDescription = "前进",
+                    tint = if (canGoForward) activeColor else disabledColor
+                )
+            }
+            IconButton(
+                onClick = onHome,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.Home,
+                    contentDescription = "主页",
+                    tint = activeColor
+                )
+            }
+            IconButton(
+                onClick = onTabs,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = MiuixIcons.GridView,
+                        contentDescription = "标签页",
+                        tint = activeColor
+                    )
+                    if (tabCount > 1) {
+                        Badge(
+                            containerColor = if (isIncognito) androidx.compose.ui.graphics.Color(0xFF9C27B0) else MiuixTheme.colorScheme.primary,
+                            contentColor = if (isIncognito) androidx.compose.ui.graphics.Color.White else MiuixTheme.colorScheme.onPrimary,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 6.dp, y = (-4).dp)
+                        ) {
+                            Text(
+                                text = tabCount.coerceAtMost(99).toString(),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
             }
-        )
-        NavigationBarItem(
-            selected = false,
-            onClick = onMenu,
-            icon = MiuixIcons.ListView,
-            label = "菜单"
-        )
+            IconButton(
+                onClick = onMenu,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.ListView,
+                    contentDescription = "菜单",
+                    tint = activeColor
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun AeryoHomeScreen(
     animationEnabled: Boolean,
-    logoVariant: String = UserPreferences.LOGO_VARIANT_DEFAULT,
-    logoStrokeWidth: Float = UserPreferences.DEFAULT_LOGO_STROKE_WIDTH,
-    logoCustomColor: Long = UserPreferences.DEFAULT_LOGO_CUSTOM_COLOR,
-    logoCustomColorEnabled: Boolean = false,
-    logoCustomImageUri: String = "",
-    logoCustomText: String = "A",
-    logoOffsetX: Float = 0f,
-    logoOffsetY: Float = 0f,
     glassEffectEnabled: Boolean = false,
     blurEffectEnabled: Boolean = false,
     searchEngine: String = UserPreferences.ENGINE_BING,
@@ -1667,6 +1620,7 @@ private fun AeryoHomeScreen(
     var query by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
     var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    var searchInputGeneration by remember { mutableStateOf(0) }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(expanded, query, searchEngine) {
@@ -1728,7 +1682,7 @@ private fun AeryoHomeScreen(
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(x = logoOffsetX.dp, y = centeredSearchY - 128.dp + logoOffsetY.dp)
+                .offset(y = centeredSearchY - 128.dp)
                 .size(108.dp)
                 .graphicsLayer {
                     alpha = logoAlpha
@@ -1737,55 +1691,52 @@ private fun AeryoHomeScreen(
                 },
             contentAlignment = Alignment.Center
         ) {
-            AeryoHomeLogo(
-                variant = logoVariant,
-                strokeWidth = logoStrokeWidth,
-                customColor = logoCustomColor,
-                customColorEnabled = logoCustomColorEnabled,
-                customImageUri = logoCustomImageUri,
-                customText = logoCustomText
+            AeryoHomeLogo()
+        }
+        key(searchInputGeneration) {
+            AeryoSearchInputField(
+                query = query,
+                onQueryChange = { query = it },
+                onSearch = { value ->
+                    if (value.isNotBlank()) {
+                        query = ""
+                        searchInputGeneration++
+                        expanded = false
+                        keyboardController?.hide()
+                        focusManager.clearFocus(force = true)
+                        onSearchSubmit(value)
+                    }
+                },
+                expanded = expanded,
+                onExpandedChange = { expanded = it },
+                label = "搜索或输入网址",
+                liquidGlassEnabled = glassEffectEnabled,
+                blurEnabled = blurEffectEnabled,
+                leadingIcon = {
+                    Icon(
+                        imageVector = MiuixIcons.Search,
+                        contentDescription = "搜索",
+                        tint = MiuixTheme.colorScheme.onSurfaceContainerHigh,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .padding(start = 16.dp, end = 8.dp)
+                    )
+                },
+                trailingIcon = if (expanded) {
+                    {
+                        SearchEngineSwitchButton(
+                            currentEngine = searchEngine,
+                            isInputting = expanded,
+                            onEngineChanged = onSearchEngineChange
+                        )
+                    }
+                } else null,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = searchOffsetY)
+                    .fillMaxWidth()
             )
         }
-        AeryoSearchInputField(
-            query = query,
-            onQueryChange = { query = it },
-            onSearch = { value ->
-                if (value.isNotBlank()) {
-                    expanded = false
-                    keyboardController?.hide()
-                    focusManager.clearFocus(force = true)
-                    onSearchSubmit(value)
-                }
-            },
-            expanded = expanded,
-            onExpandedChange = { expanded = it },
-            label = "搜索或输入网址",
-            liquidGlassEnabled = glassEffectEnabled,
-            blurEnabled = blurEffectEnabled,
-            leadingIcon = {
-                Icon(
-                    imageVector = MiuixIcons.Search,
-                    contentDescription = "搜索",
-                    tint = MiuixTheme.colorScheme.onSurfaceContainerHigh,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .padding(start = 16.dp, end = 8.dp)
-                )
-            },
-            trailingIcon = if (expanded) {
-                {
-                    SearchEngineSwitchButton(
-                        currentEngine = searchEngine,
-                        isInputting = expanded,
-                        onEngineChanged = onSearchEngineChange
-                    )
-                }
-            } else null,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = searchOffsetY)
-                .fillMaxWidth()
-        )
         if (expanded && suggestions.isNotEmpty()) {
             SearchSuggestionPopup(
                 suggestions = suggestions,
@@ -1795,7 +1746,8 @@ private fun AeryoHomeScreen(
                     .offset(y = searchOffsetY + 66.dp)
                     .fillMaxWidth(),
                 onSuggestionSelected = { suggestion ->
-                    query = suggestion
+                    query = ""
+                    searchInputGeneration++
                     expanded = false
                     keyboardController?.hide()
                     focusManager.clearFocus(force = true)
@@ -1811,111 +1763,14 @@ private fun AeryoHomeScreen(
 }
 
 @Composable
-private fun AeryoHomeLogo(
-    variant: String,
-    strokeWidth: Float,
-    customColor: Long,
-    customColorEnabled: Boolean,
-    customImageUri: String,
-    customText: String
-) {
-    when (variant) {
-        UserPreferences.LOGO_VARIANT_DEFAULT -> AeryoHomeLineMark(
-            variant = variant,
-            strokeWidth = strokeWidth,
-            customColor = customColor,
-            customColorEnabled = customColorEnabled
-        )
-
-        UserPreferences.LOGO_VARIANT_CUSTOM_IMAGE -> {
-            if (customImageUri.isNotBlank()) {
-                Image(
-                    painter = rememberAsyncImagePainter(customImageUri),
-                    contentDescription = "自定义 Logo",
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Image(
-                    painter = painterResource(R.drawable.aeryo_app_icon),
-                    contentDescription = "Aeryo 默认 Logo",
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
-
-        UserPreferences.LOGO_VARIANT_CUSTOM_TEXT -> Text(
-            text = customText.ifBlank { "A" },
-            color = if (customColorEnabled) Color(customColor) else MiuixTheme.colorScheme.primary,
-            fontSize = 52.sp,
-            fontWeight = when {
-                strokeWidth >= 15f -> FontWeight.Black
-                strokeWidth >= 10f -> FontWeight.Bold
-                else -> FontWeight.Medium
-            }
-        )
-
-        else -> AeryoHomeLineMark(variant, strokeWidth, customColor, customColorEnabled)
-    }
-}
-
-@Composable
-private fun AeryoHomeLineMark(
-    variant: String,
-    strokeWidth: Float,
-    customColor: Long,
-    customColorEnabled: Boolean
-) {
-    val monoColor = MiuixTheme.colorScheme.onBackground
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val sx = size.width / 120f
-        val sy = size.height / 120f
-        val path = Path().apply {
-            moveTo(24f * sx, 96f * sy)
-            cubicTo(30f * sx, 69f * sy, 37f * sx, 45f * sy, 50f * sx, 27f * sy)
-            cubicTo(56f * sx, 19f * sy, 65f * sx, 19f * sy, 71f * sx, 28f * sy)
-            cubicTo(79f * sx, 42f * sy, 84f * sx, 62f * sy, 89f * sx, 85f * sy)
-            moveTo(36f * sx, 72f * sy)
-            cubicTo(52f * sx, 62f * sy, 70f * sx, 58f * sy, 91f * sx, 60f * sy)
-            cubicTo(104f * sx, 61f * sy, 111f * sx, 68f * sy, 108f * sx, 79f * sy)
-            cubicTo(105f * sx, 91f * sy, 92f * sx, 98f * sy, 78f * sx, 96f * sy)
-        }
-        val brush = if (customColorEnabled) {
-            SolidColor(Color(customColor))
-        } else {
-            when (variant) {
-                UserPreferences.LOGO_VARIANT_SUNSET -> Brush.linearGradient(
-                    listOf(Color(0xFFFFC247), Color(0xFFFF7043), Color(0xFFE04F88)),
-                    Offset.Zero,
-                    Offset(size.width, size.height)
-                )
-                UserPreferences.LOGO_VARIANT_MINT -> Brush.linearGradient(
-                    listOf(Color(0xFF50D8AE), Color(0xFF27B7A5), Color(0xFF3A88D8)),
-                    Offset.Zero,
-                    Offset(size.width, size.height)
-                )
-                UserPreferences.LOGO_VARIANT_MONO -> SolidColor(monoColor)
-                UserPreferences.LOGO_VARIANT_DEFAULT -> Brush.linearGradient(
-                    listOf(Color(0xFFFFB13B), Color(0xFFF16A55), Color(0xFF8A4FD2)),
-                    Offset.Zero,
-                    Offset(size.width, size.height)
-                )
-                else -> Brush.linearGradient(
-                    listOf(Color(0xFF4DA3FF), Color(0xFF806BFF), Color(0xFFC35BDF)),
-                    Offset.Zero,
-                    Offset(size.width, size.height)
-                )
-            }
-        }
-        drawPath(
-            path = path,
-            brush = brush,
-            style = Stroke(
-                width = strokeWidth.dp.toPx(),
-                cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                join = androidx.compose.ui.graphics.StrokeJoin.Round
-            )
-        )
-    }
+private fun AeryoHomeLogo() {
+    Image(
+        painter = painterResource(R.drawable.aeryo_app_icon),
+        contentDescription = "Aeryo Logo",
+        // The vector follows adaptive-icon safe-zone spacing; oversize it inside the
+        // stable layout box just like InstallerX does in its Miuix About header.
+        modifier = Modifier.requiredSize(196.dp)
+    )
 }
 
 private fun fullScreenEnterTransition() =
@@ -1947,6 +1802,7 @@ private fun processUrlInput(input: String, searchEngine: String): String {
     val value = input.trim()
     if (value.isEmpty()) return "about:blank"
     if (value.startsWith("aeryo://")) return value
+    if (value.startsWith("aeryo:", ignoreCase = true)) return "aeryo://" + value.substringAfter("aeryo:").trimStart('/')
     if (value.startsWith("http://") || value.startsWith("https://")) return value
     if (value.contains(".") && !value.contains(" ")) return "https://$value"
     return "$searchEngine${Uri.encode(value)}"
@@ -1989,19 +1845,19 @@ private fun openExternalLink(context: android.content.Context, rawUrl: String): 
     }
 }
 
-private fun applyLauncherIcon(context: android.content.Context, variant: String) {
-    val aliases = linkedMapOf(
-        UserPreferences.LAUNCHER_ICON_DEFAULT to ".launcher.DefaultIconAlias",
-        UserPreferences.LAUNCHER_ICON_FLAME to ".launcher.FlameIconAlias",
-        UserPreferences.LAUNCHER_ICON_AURORA to ".launcher.AuroraIconAlias",
-        UserPreferences.LAUNCHER_ICON_SUNSET to ".launcher.SunsetIconAlias",
-        UserPreferences.LAUNCHER_ICON_OCEAN to ".launcher.OceanIconAlias"
+private fun restoreDefaultLauncherIcon(context: android.content.Context) {
+    val defaultAlias = ".launcher.DefaultIconAlias"
+    val legacyAliases = listOf(
+        ".launcher.FlameIconAlias",
+        ".launcher.FirefoxIconAlias",
+        ".launcher.AuroraIconAlias",
+        ".launcher.SunsetIconAlias",
+        ".launcher.OceanIconAlias"
     )
-    val selected = aliases[variant] ?: aliases.getValue(UserPreferences.LAUNCHER_ICON_DEFAULT)
-    (aliases.values + ".launcher.FirefoxIconAlias").forEach { alias ->
+    (listOf(defaultAlias) + legacyAliases).forEach { alias ->
         context.packageManager.setComponentEnabledSetting(
             android.content.ComponentName(context.packageName, context.packageName + alias),
-            if (alias == selected) {
+            if (alias == defaultAlias) {
                 android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
             } else {
                 android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
@@ -2017,26 +1873,133 @@ private fun isSearchQueryInput(input: String): Boolean {
            !value.startsWith("http://") &&
            !value.startsWith("https://") &&
            !value.startsWith("aeryo://") &&
+           !value.startsWith("aeryo:", ignoreCase = true) &&
            (!value.contains(".") || value.contains(" "))
 }
+
+private fun safeGoBack(webView: WebView): Boolean {
+    if (!webView.canGoBack()) return false
+    val history = webView.copyBackForwardList()
+    val currentIndex = history.currentIndex
+    if (currentIndex <= 0) return false
+
+    val currentUrl = history.getItemAtIndex(currentIndex)?.url.orEmpty()
+    val currentHost = runCatching { Uri.parse(currentUrl).host?.lowercase() }.getOrNull().orEmpty()
+    val currentQuery = extractSearchQueryFromUrl(currentUrl)
+
+    var targetIndex = currentIndex - 1
+    while (targetIndex >= 0) {
+        val targetItem = history.getItemAtIndex(targetIndex) ?: break
+        val targetUrl = targetItem.url.orEmpty()
+        val targetHost = runCatching { Uri.parse(targetUrl).host?.lowercase() }.getOrNull().orEmpty()
+        val targetQuery = extractSearchQueryFromUrl(targetUrl)
+
+        if (isUrlRedirectOrDuplicate(currentUrl, currentHost, currentQuery, targetUrl, targetHost, targetQuery)) {
+            targetIndex--
+        } else {
+            break
+        }
+    }
+
+    if (targetIndex < 0) return false
+
+    val steps = currentIndex - targetIndex
+    if (steps > 1) {
+        webView.goBackOrForward(-steps)
+    } else {
+        webView.goBack()
+    }
+    return true
+}
+
+private fun isUrlRedirectOrDuplicate(
+    currentUrl: String,
+    currentHost: String,
+    currentQuery: String?,
+    targetUrl: String,
+    targetHost: String,
+    targetQuery: String?
+): Boolean {
+    if (targetUrl.isBlank()) return false
+    val uri = runCatching { Uri.parse(targetUrl) }.getOrNull()
+    if (uri != null && uri.isHierarchical) {
+        val paramNames = runCatching { uri.queryParameterNames }.getOrNull().orEmpty()
+        for (name in paramNames) {
+            if (runCatching { uri.getQueryParameters(name) }.getOrNull()?.size.orZero() > 1) {
+                return true
+            }
+        }
+    }
+
+    if (currentHost.isNotBlank() && targetHost.isNotBlank() &&
+        isSameSearchEngineHost(currentHost, targetHost) &&
+        !currentQuery.isNullOrBlank() && currentQuery.equals(targetQuery, ignoreCase = true)
+    ) {
+        return true
+    }
+
+    if (currentHost.removePrefix("www.") == targetHost.removePrefix("www.") &&
+        currentUrl.substringAfter("://").substringBefore('?') == targetUrl.substringAfter("://").substringBefore('?')
+    ) {
+        if (currentUrl != targetUrl && (currentUrl.length > targetUrl.length + 10 || targetUrl.length > currentUrl.length + 10)) {
+            return true
+        }
+    }
+
+    return false
+}
+
+private fun isSameSearchEngineHost(host1: String, host2: String): Boolean {
+    val h1 = host1.removePrefix("www.").lowercase()
+    val h2 = host2.removePrefix("www.").lowercase()
+    if (h1 == h2) return true
+
+    val domain1 = h1.split('.').takeLast(2).joinToString(".")
+    val domain2 = h2.split('.').takeLast(2).joinToString(".")
+    if (domain1.isNotBlank() && domain1.contains('.') && domain1 == domain2) return true
+
+    val engines = listOf("google.", "bing.", "baidu.", "duckduckgo.", "yahoo.", "yandex.", "so.com", "sogou.")
+    return engines.any { h1.contains(it) && h2.contains(it) }
+}
+
+private fun Int?.orZero(): Int = this ?: 0
 
 private fun buildSearchUrl(searchEngine: String, query: String): String {
     return searchEngine + Uri.encode(query)
 }
 
 private fun extractSearchQueryFromUrl(url: String): String? {
+    if (url.isBlank()) return null
+    val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return null
+    if (!uri.isHierarchical) return null
+    val host = uri.host?.lowercase().orEmpty()
     val param = when {
-        url.startsWith("https://www.google.com/search?q=") -> "q"
-        url.startsWith("https://www.bing.com/search?q=") -> "q"
-        url.startsWith("https://www.baidu.com/s?wd=") -> "wd"
-        url.startsWith("https://duckduckgo.com/?q=") -> "q"
-        url.startsWith("https://search.yahoo.com/search?p=") -> "p"
-        url.startsWith("https://yandex.com/search/?text=") -> "text"
-        url.startsWith("https://www.so.com/s?q=") -> "q"
-        url.startsWith("https://www.sogou.com/web?query=") -> "query"
-        else -> return null
+        host.contains("google.") -> "q"
+        host.contains("bing.") -> "q"
+        host.contains("baidu.") -> "wd"
+        host.contains("duckduckgo.") -> "q"
+        host.contains("yahoo.") -> "p"
+        host.contains("yandex.") -> "text"
+        host.contains("so.com") -> "q"
+        host.contains("sogou.") -> "query"
+        else -> null
     }
-    return Uri.parse(url).getQueryParameter(param)
+
+    if (param != null) {
+        val q = uri.getQueryParameter(param)
+        if (!q.isNullOrBlank()) return q
+    }
+
+    // 动态探测通用搜索 Query 参数名，无缝支持自定义搜索引擎
+    val commonParams = listOf("q", "wd", "query", "p", "text", "k", "search", "key", "word", "kw", "s")
+    for (p in commonParams) {
+        val value = uri.getQueryParameter(p)
+        if (!value.isNullOrBlank()) {
+            return value
+        }
+    }
+
+    return null
 }
 
 @Composable
