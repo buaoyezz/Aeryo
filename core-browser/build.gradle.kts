@@ -49,5 +49,5 @@ dependencies {
     implementation(libs.miuix.squircle)
 
     implementation(libs.kotlinx.coroutines.android)
-    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.2.0")
 }
