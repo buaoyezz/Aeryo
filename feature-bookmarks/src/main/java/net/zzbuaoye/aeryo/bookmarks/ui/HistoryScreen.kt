@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -98,7 +99,17 @@ fun HistoryScreen(
     onClearAllPrivateHistory: () -> Unit = {},
     onBack: () -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(if (isIncognito) 0 else 0) }
+    val showTabs = isIncognito || privateHistory.isNotEmpty()
+    var selectedTab by remember(isIncognito) {
+        mutableIntStateOf(if (isIncognito) 1 else 0)
+    }
+
+    LaunchedEffect(isIncognito, privateHistory.isEmpty()) {
+        if (!isIncognito && privateHistory.isEmpty() && selectedTab == 1) {
+            selectedTab = 0
+        }
+    }
+
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     var showClearConfirmation by remember { mutableStateOf(false) }
@@ -107,7 +118,7 @@ fun HistoryScreen(
     val scrollBehavior = MiuixScrollBehavior()
     val topBarBackdrop = rememberAeryoWindowBackdrop()
 
-    val activeTab = if (isIncognito) selectedTab else 0
+    val activeTab = if (showTabs) selectedTab else 0
 
     val activeHistoryList = remember(history, privateHistory, activeTab) {
         if (activeTab == 0) history else privateHistory.map {
@@ -166,7 +177,7 @@ fun HistoryScreen(
                     .padding(top = padding.calculateTopPadding())
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
             ) {
-                if (isIncognito) {
+                if (showTabs) {
                     TabRowWithContour(
                         tabs = listOf(
                             "常规  ${history.size}",
@@ -176,7 +187,7 @@ fun HistoryScreen(
                         onTabSelected = { selectedTab = it },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 12.dp, top = 12.dp, end = 12.dp),
+                            .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
                     )
                 }
                 SearchBar(
@@ -196,7 +207,7 @@ fun HistoryScreen(
                     } else {
                         Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
+                            .padding(start = 12.dp, end = 12.dp, top = if (showTabs) 0.dp else 10.dp, bottom = 8.dp)
                     },
                     expanded = searchExpanded,
                     outsideEndAction = {
@@ -215,7 +226,7 @@ fun HistoryScreen(
                         history = filteredHistory,
                         onUrlSelected = onUrlSelected,
                         onMoreRequested = { item ->
-                            if (selectedTab == 1) {
+                            if (activeTab == 1) {
                                 actionPrivateItem = privateHistory.find { it.id == item.id }
                             } else {
                                 actionItem = item
@@ -223,7 +234,9 @@ fun HistoryScreen(
                         },
                         onFaviconLoaded = onFaviconLoaded,
                         emptyMessage = if (query.isBlank()) "暂无历史记录" else "没有匹配的历史记录",
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        topPadding = 8.dp,
+                        bottomPadding = padding.calculateBottomPadding() + 16.dp
                     )
                 }
 
@@ -232,15 +245,16 @@ fun HistoryScreen(
                         history = activeHistoryList,
                         onUrlSelected = onUrlSelected,
                         onMoreRequested = { item ->
-                            if (selectedTab == 1) {
+                            if (activeTab == 1) {
                                 actionPrivateItem = privateHistory.find { it.id == item.id }
                             } else {
                                 actionItem = item
                             }
                         },
                         onFaviconLoaded = onFaviconLoaded,
-                        emptyMessage = if (selectedTab == 1) "暂无保留的隐私历史网页" else "还没有浏览历史",
+                        emptyMessage = if (activeTab == 1) "暂无保留的隐私历史网页" else "还没有浏览历史",
                         modifier = Modifier.weight(1f),
+                        topPadding = 4.dp,
                         bottomPadding = padding.calculateBottomPadding() + 16.dp
                     )
                 }
@@ -248,9 +262,10 @@ fun HistoryScreen(
 
             OverlayDialog(
                 show = showClearConfirmation,
-                title = if (selectedTab == 1) "清空所有私密历史记录？" else "清空浏览历史？",
+                title = if (activeTab == 1) "清空所有私密历史记录？" else "清空浏览历史？",
                 summary = "此操作会完全删除所有相关记录，且无法撤销。",
-                onDismissRequest = { showClearConfirmation = false }
+                onDismissRequest = { showClearConfirmation = false },
+                renderInRootScaffold = false
             ) {
                 Row(horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(
@@ -262,7 +277,7 @@ fun HistoryScreen(
                     TextButton(
                         text = "清空",
                         onClick = {
-                            if (selectedTab == 1) {
+                            if (activeTab == 1) {
                                 onClearAllPrivateHistory()
                             } else {
                                 onClearAllHistory()
@@ -279,7 +294,8 @@ fun HistoryScreen(
             OverlayBottomSheet(
                 show = actionItem != null,
                 title = actionItem?.let(::displayTitle),
-                onDismissRequest = { actionItem = null }
+                onDismissRequest = { actionItem = null },
+                renderInRootScaffold = false
             ) {
                 val selectedItem = actionItem
                 BasicComponent(
@@ -321,7 +337,8 @@ fun HistoryScreen(
             OverlayBottomSheet(
                 show = actionPrivateItem != null,
                 title = actionPrivateItem?.title,
-                onDismissRequest = { actionPrivateItem = null }
+                onDismissRequest = { actionPrivateItem = null },
+                renderInRootScaffold = false
             ) {
                 val selectedItem = actionPrivateItem
                 BasicComponent(
@@ -370,6 +387,7 @@ private fun HistoryList(
     onFaviconLoaded: (HistoryEntity, ByteArray) -> Unit,
     emptyMessage: String,
     modifier: Modifier = Modifier,
+    topPadding: androidx.compose.ui.unit.Dp = 4.dp,
     bottomPadding: androidx.compose.ui.unit.Dp = 16.dp
 ) {
     val sections = remember(history) { historySections(history) }
@@ -404,30 +422,37 @@ private fun HistoryList(
                 contentPadding = PaddingValues(
                     start = 12.dp,
                     end = 12.dp,
-                    top = 4.dp,
+                    top = topPadding,
                     bottom = bottomPadding
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 sections.forEach { section ->
-                    item(key = "section-${section.date}") {
-                        Column {
+                    stickyHeader(key = "header-${section.date}") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(aeryoWindowColor())
+                                .padding(vertical = 2.dp)
+                        ) {
                             SmallTitle(text = section.title)
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                insideMargin = PaddingValues(0.dp),
-                                colors = CardDefaults.defaultColors(
-                                    color = aeryoCardColor()
+                        }
+                    }
+                    item(key = "card-${section.date}") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            insideMargin = PaddingValues(0.dp),
+                            colors = CardDefaults.defaultColors(
+                                color = aeryoCardColor()
+                            )
+                        ) {
+                            section.items.forEach { item ->
+                                HistoryRow(
+                                    item = item,
+                                    onClick = { onUrlSelected(item.url) },
+                                    onMore = { onMoreRequested(item) },
+                                    onFaviconLoaded = onFaviconLoaded
                                 )
-                            ) {
-                                section.items.forEach { item ->
-                                    HistoryRow(
-                                        item = item,
-                                        onClick = { onUrlSelected(item.url) },
-                                        onMore = { onMoreRequested(item) },
-                                        onFaviconLoaded = onFaviconLoaded
-                                    )
-                                }
                             }
                         }
                     }

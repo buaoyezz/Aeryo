@@ -52,6 +52,9 @@ interface BookmarkDao {
     @Delete
     suspend fun deletePrivateHistory(history: PrivateHistoryEntity)
 
+    @Query("UPDATE private_history SET favicon = :favicon WHERE url = :url")
+    suspend fun updatePrivateHistoryFaviconByUrl(url: String, favicon: ByteArray)
+
     @Query("SELECT EXISTS(SELECT 1 FROM private_history WHERE url = :url)")
     fun isSavedInPrivateHistory(url: String): Flow<Boolean>
 }
