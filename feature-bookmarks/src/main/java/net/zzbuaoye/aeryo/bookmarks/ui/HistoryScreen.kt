@@ -99,13 +99,13 @@ fun HistoryScreen(
     onClearAllPrivateHistory: () -> Unit = {},
     onBack: () -> Unit
 ) {
-    val showTabs = isIncognito || privateHistory.isNotEmpty()
+    val showTabs = isIncognito
     var selectedTab by remember(isIncognito) {
         mutableIntStateOf(if (isIncognito) 1 else 0)
     }
 
-    LaunchedEffect(isIncognito, privateHistory.isEmpty()) {
-        if (!isIncognito && privateHistory.isEmpty() && selectedTab == 1) {
+    LaunchedEffect(isIncognito) {
+        if (!isIncognito) {
             selectedTab = 0
         }
     }
@@ -118,10 +118,10 @@ fun HistoryScreen(
     val scrollBehavior = MiuixScrollBehavior()
     val topBarBackdrop = rememberAeryoWindowBackdrop()
 
-    val activeTab = if (showTabs) selectedTab else 0
+    val activeTab = if (isIncognito) selectedTab else 0
 
-    val activeHistoryList = remember(history, privateHistory, activeTab) {
-        if (activeTab == 0) history else privateHistory.map {
+    val activeHistoryList = remember(history, privateHistory, activeTab, isIncognito) {
+        if (!isIncognito || activeTab == 0) history else privateHistory.map {
             HistoryEntity(
                 id = it.id,
                 title = it.title,

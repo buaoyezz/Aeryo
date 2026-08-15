@@ -260,7 +260,6 @@ fun SearchEnginesScreen(
                 }
             }
         }
-    }
 
     AddOrEditSearchEngineDialog(
         show = showDialog,
@@ -318,6 +317,7 @@ fun SearchEnginesScreen(
                 )
             }
         }
+    }
     }
 }
 

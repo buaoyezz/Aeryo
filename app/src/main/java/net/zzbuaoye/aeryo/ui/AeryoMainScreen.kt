@@ -490,7 +490,13 @@ fun AeryoMainScreen(
         val target = processUrlInput(input, searchEngine)
         when (target) {
             "aeryo://settings" -> showSettings = true
-            "aeryo://history" -> requestPrivacyAuth { showHistory = true }
+            "aeryo://history" -> {
+                if (currentTab?.isIncognito == true) {
+                    requestPrivacyAuth { showHistory = true }
+                } else {
+                    showHistory = true
+                }
+            }
             "aeryo://bookmarks" -> showBookmarks = true
             "aeryo://downloads" -> showDownloads = true
             "aeryo://about" -> showAbout = true
@@ -1174,7 +1180,11 @@ fun AeryoMainScreen(
                     },
                     onNavigateToHistory = {
                         showMenu = false
-                        requestPrivacyAuth {
+                        if (currentTab?.isIncognito == true) {
+                            requestPrivacyAuth {
+                                showHistory = true
+                            }
+                        } else {
                             showHistory = true
                         }
                     },

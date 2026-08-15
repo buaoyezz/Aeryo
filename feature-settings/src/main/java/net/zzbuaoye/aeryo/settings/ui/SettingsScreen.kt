@@ -346,7 +346,6 @@ fun SettingsScreen(
                 }
             }
         }
-    }
 
     AddOrEditSearchEngineDialog(
         show = showAddEngineDialog,
@@ -404,6 +403,7 @@ fun SettingsScreen(
                 )
             }
         }
+    }
     }
 }
 
