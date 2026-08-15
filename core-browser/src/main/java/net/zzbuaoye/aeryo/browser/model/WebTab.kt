@@ -22,5 +22,6 @@ data class WebTab(
     var preview: Bitmap? = null,
     var lastSearchQuery: String = "",
     var navigationRequestId: Long = 0L,
+    var sniffedMedia: List<SniffedMediaItem> = emptyList(),
     var webView: WebView? = null
 )

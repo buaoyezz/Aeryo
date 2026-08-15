@@ -48,12 +48,23 @@ class TabManager {
         return newTab
     }
 
+    private val _closedTabs = mutableListOf<WebTab>()
+    val closedTabs: List<WebTab> get() = _closedTabs.toList()
+
+    fun clearClosedTabs() {
+        _closedTabs.clear()
+    }
+
     fun closeTab(tabId: String) {
         val currentState = _state.value
         val currentList = currentState.tabs.toMutableList()
         val indexToClose = currentList.indexOfFirst { it.id == tabId }
         if (indexToClose != -1) {
             val tab = currentList[indexToClose]
+            if (!tab.isIncognito && tab.url != "about:blank") {
+                _closedTabs.add(0, tab.copy(webView = null))
+                if (_closedTabs.size > 25) _closedTabs.removeLast()
+            }
             tab.webView?.apply {
                 if (tab.isIncognito) {
                     clearHistory()
