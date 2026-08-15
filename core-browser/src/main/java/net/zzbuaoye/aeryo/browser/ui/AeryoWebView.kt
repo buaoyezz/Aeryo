@@ -12,10 +12,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import net.zzbuaoye.aeryo.browser.assignIncognitoProfile
 import net.zzbuaoye.aeryo.browser.adblock.AdBlockEngine
+import net.zzbuaoye.aeryo.browser.cookieManagerFor
+import net.zzbuaoye.aeryo.browser.deleteIncognitoProfile
 import net.zzbuaoye.aeryo.browser.model.ContextMenuTarget
 import net.zzbuaoye.aeryo.browser.model.SniffedMediaItem
 import net.zzbuaoye.aeryo.browser.model.WebTab
+import net.zzbuaoye.aeryo.browser.supportsIsolatedIncognitoProfile
 
 const val CHROME_DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
@@ -102,11 +106,29 @@ fun AeryoWebView(
         net.zzbuaoye.aeryo.browser.script.UserScriptEngine.setScriptEnabled("page_visibility_spoof", backgroundPlaybackEnabled)
     }
 
-    key(tab.id) {
+    key(tab.id, tab.isIncognito) {
         AndroidView(
             modifier = modifier,
             factory = { context ->
-                val webView = (tab.webView ?: WebView(context)).apply {
+                val desiredIncognitoMode = tab.isIncognito
+                val previousWebView = tab.webView
+                val previousIncognitoMode = previousWebView?.tag as? Boolean
+                val existingWebView = previousWebView?.takeIf {
+                    previousIncognitoMode == desiredIncognitoMode
+                }
+                if (previousWebView != null && existingWebView == null) {
+                    (previousWebView.parent as? ViewGroup)?.removeView(previousWebView)
+                    previousWebView.destroy()
+                    tab.webView = null
+                    if (previousIncognitoMode == true && !desiredIncognitoMode) {
+                        deleteIncognitoProfile()
+                    }
+                }
+                val usesIncognitoProfile = tab.isIncognito && supportsIsolatedIncognitoProfile()
+                val webView = (existingWebView ?: WebView(context).also { newWebView ->
+                    if (tab.isIncognito) assignIncognitoProfile(newWebView)
+                    newWebView.tag = desiredIncognitoMode
+                }).apply {
                     (parent as? ViewGroup)?.removeView(this)
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -117,8 +139,10 @@ fun AeryoWebView(
                         javaScriptEnabled = true
                         javaScriptCanOpenWindowsAutomatically = true
                         setSupportMultipleWindows(false)
-                        domStorageEnabled = !tab.isIncognito
-                        databaseEnabled = !tab.isIncognito
+                        // Incognito WebViews use a separate profile, so modern sites may use
+                        // localStorage/IndexedDB without leaking data into the default profile.
+                        domStorageEnabled = !tab.isIncognito || usesIncognitoProfile
+                        databaseEnabled = !tab.isIncognito || usesIncognitoProfile
                         saveFormData = !tab.isIncognito
                         useWideViewPort = true
                         loadWithOverviewMode = true
@@ -142,8 +166,11 @@ fun AeryoWebView(
                         clearHistory()
                         clearFormData()
                     }
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, !blockThirdPartyCookies)
+                    val configuredWebView = this
+                    cookieManagerFor(configuredWebView, usesIncognitoProfile).apply {
+                        setAcceptCookie(true)
+                        setAcceptThirdPartyCookies(configuredWebView, !blockThirdPartyCookies)
+                    }
 
                     setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
                         onDownloadRequested(url, userAgent, contentDisposition, mimetype, contentLength)
@@ -189,6 +216,25 @@ fun AeryoWebView(
                     }
 
                     webChromeClient = object : WebChromeClient() {
+                        override fun onPermissionRequest(request: PermissionRequest?) {
+                            if (request == null) return
+
+                            val requestedResources = request.resources
+                            val isSecureOrigin = request.origin?.scheme.equals("https", ignoreCase = true)
+                            val requestsOnlyProtectedMedia = requestedResources.isNotEmpty() &&
+                                requestedResources.all { it == PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID }
+
+                            // EME/Widevine playback needs the protected-media identifier. Incognito
+                            // pages may use it only when their data is isolated in a separate profile.
+                            // Camera, microphone, MIDI, and future resource types remain denied.
+                            val protectedMediaAllowed = !tab.isIncognito || usesIncognitoProfile
+                            if (isSecureOrigin && protectedMediaAllowed && requestsOnlyProtectedMedia) {
+                                request.grant(requestedResources)
+                            } else {
+                                request.deny()
+                            }
+                        }
+
                         override fun onProgressChanged(view: WebView?, newProgress: Int) {
                             onTabUpdated(tabId) { current ->
                                 if (current.url == "about:blank") current else {
@@ -444,7 +490,9 @@ fun AeryoWebView(
                     webView.settings.forceDark = if (nightModeEnabled) WebSettings.FORCE_DARK_ON else WebSettings.FORCE_DARK_OFF
                 }
                 net.zzbuaoye.aeryo.browser.script.UserScriptEngine.applySmartDarkMode(webView, nightModeEnabled && smartDarkModeEnabled)
-                CookieManager.getInstance().setAcceptThirdPartyCookies(webView, !blockThirdPartyCookies)
+                val usesIncognitoProfile = tab.isIncognito && supportsIsolatedIncognitoProfile()
+                cookieManagerFor(webView, usesIncognitoProfile)
+                    .setAcceptThirdPartyCookies(webView, !blockThirdPartyCookies)
             }
         )
     }

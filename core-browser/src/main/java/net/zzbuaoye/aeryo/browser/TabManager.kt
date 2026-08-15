@@ -76,6 +76,10 @@ class TabManager {
             tab.webView = null
             currentList.removeAt(indexToClose)
 
+            if (tab.isIncognito && currentList.none { it.isIncognito }) {
+                deleteIncognitoProfile()
+            }
+
             if (currentList.isEmpty()) {
                 val replacement = WebTab(url = "about:blank", title = "新标签页")
                 _state.value = State(tabs = listOf(replacement), activeTabIndex = 0)
@@ -106,6 +110,9 @@ class TabManager {
             tab.webView = null
         }
         currentList.removeAll { it.isIncognito }
+        if (incognitoTabs.isNotEmpty()) {
+            deleteIncognitoProfile()
+        }
         if (currentList.isEmpty()) {
             val replacement = WebTab(url = "about:blank", title = "新标签页")
             _state.value = State(tabs = listOf(replacement), activeTabIndex = 0)
@@ -116,6 +123,7 @@ class TabManager {
     }
 
     fun closeAllTabs() {
+        val hadIncognitoTabs = _state.value.tabs.any { it.isIncognito }
         _state.value.tabs.forEach { tab ->
             tab.webView?.apply {
                 if (tab.isIncognito) {
@@ -126,6 +134,9 @@ class TabManager {
                 destroy()
             }
             tab.webView = null
+        }
+        if (hadIncognitoTabs) {
+            deleteIncognitoProfile()
         }
         val replacement = WebTab(url = "about:blank", title = "新标签页")
         _state.value = State(tabs = listOf(replacement), activeTabIndex = 0)
