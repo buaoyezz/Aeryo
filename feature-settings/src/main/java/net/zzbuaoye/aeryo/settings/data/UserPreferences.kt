@@ -15,6 +15,7 @@ class UserPreferences(private val context: Context) {
 
     companion object {
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
+        val CUSTOM_SEARCH_ENGINES_KEY = stringPreferencesKey("custom_search_engines")
         val USER_AGENT_KEY = stringPreferencesKey("user_agent")
         val AD_BLOCK_KEY = booleanPreferencesKey("ad_block_enabled")
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")
@@ -22,6 +23,7 @@ class UserPreferences(private val context: Context) {
         val ADDRESS_BAR_ANIMATION_KEY = booleanPreferencesKey("address_bar_animation_enabled")
         val NIGHT_MODE_KEY = booleanPreferencesKey("night_mode_enabled")
         val DOWNLOAD_MODE_KEY = stringPreferencesKey("download_mode")
+        val DOWNLOAD_PATH_KEY = stringPreferencesKey("download_directory_path")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
         val THEME_PALETTE_KEY = stringPreferencesKey("theme_palette")
         val THEME_KEY_COLOR_KEY = longPreferencesKey("theme_key_color")
@@ -32,6 +34,22 @@ class UserPreferences(private val context: Context) {
         val CLEAR_ON_EXIT_KEY = booleanPreferencesKey("clear_on_exit")
         val TAB_VIEW_MODE_KEY = stringPreferencesKey("tab_view_mode")
         val AD_BLOCK_AUTO_UPDATE_INTERVAL_KEY = stringPreferencesKey("ad_block_auto_update_interval")
+        val PRIVACY_BIOMETRIC_KEY = booleanPreferencesKey("privacy_biometric_enabled")
+        val VIDEO_AUTO_LANDSCAPE_KEY = booleanPreferencesKey("video_auto_landscape_enabled")
+        val VIDEO_KEEP_SCREEN_ON_KEY = booleanPreferencesKey("video_keep_screen_on_enabled")
+        val VIDEO_PIP_AUTO_KEY = booleanPreferencesKey("video_pip_auto_enabled")
+        val VIDEO_GESTURE_KEY = booleanPreferencesKey("video_gesture_enabled")
+        val BACKGROUND_PLAYBACK_KEY = booleanPreferencesKey("background_playback_enabled")
+        val MEDIA_SNIFFER_KEY = booleanPreferencesKey("media_sniffer_enabled")
+        val MEDIA_SNIFFER_FLOATING_KEY = booleanPreferencesKey("media_sniffer_floating_enabled")
+        val MEDIA_SNIFFER_BADGE_MODE_KEY = stringPreferencesKey("media_sniffer_badge_mode")
+        val EDGE_SWIPE_NAVIGATION_KEY = booleanPreferencesKey("edge_swipe_navigation_enabled")
+        val SMART_DARK_MODE_KEY = booleanPreferencesKey("smart_dark_mode_enabled")
+        val QUICK_SCROLL_BUTTON_KEY = booleanPreferencesKey("quick_scroll_button_enabled")
+
+        const val MEDIA_SNIFFER_BADGE_DOT = "dot"
+        const val MEDIA_SNIFFER_BADGE_COUNT = "count"
+        const val MEDIA_SNIFFER_BADGE_NONE = "none"
 
         const val AD_BLOCK_AUTO_UPDATE_12H = "12h"
         const val AD_BLOCK_AUTO_UPDATE_3D = "3d"
@@ -62,7 +80,6 @@ class UserPreferences(private val context: Context) {
         const val THEME_KEY_ORANGE = 0xFFE47732L
         const val THEME_KEY_PURPLE = 0xFF8656C9L
         const val THEME_KEY_RED = 0xFFD94C5CL
-        val PRIVACY_BIOMETRIC_KEY = booleanPreferencesKey("privacy_biometric_enabled")
 
         // search engine urls 
         const val ENGINE_GOOGLE = "https://www.google.com/search?q="
@@ -74,24 +91,41 @@ class UserPreferences(private val context: Context) {
         const val ENGINE_360 = "https://www.so.com/s?q="
         const val ENGINE_SOGOU = "https://www.sogou.com/web?query="
 
-        /**
-         * Search-engine settings are stored as URL prefixes. Older builds could
-         * persist a redirected Bing URL (including repeated mkt parameters),
-         * which would then be used as a prefix for the next search.
-         */
-        fun normalizeSearchEngine(engineUrl: String?): String {
-            val value = engineUrl?.trim().orEmpty().lowercase()
+        fun resolveSearchEngine(keyOrUrl: String?, allEngines: List<SearchEngine> = SearchEngine.PRESET_ENGINES): SearchEngine {
+            val value = keyOrUrl?.trim().orEmpty()
+            if (value.isBlank()) return SearchEngine.PRESET_BING
+
+            // 1. Direct ID match
+            allEngines.firstOrNull { it.id.equals(value, ignoreCase = true) }?.let { return it }
+
+            // 2. Direct Search URL match (exact or template-stripped)
+            allEngines.firstOrNull {
+                it.searchUrl.equals(value, ignoreCase = true) ||
+                    it.searchUrl.replace("%s", "").equals(value.replace("%s", ""), ignoreCase = true)
+            }?.let { return it }
+
+            // 3. Domain matching for preset backward compatibility
+            val lower = value.lowercase()
             return when {
-                value.contains("google.com") -> ENGINE_GOOGLE
-                value.contains("bing.com") -> ENGINE_BING
-                value.contains("baidu.com") -> ENGINE_BAIDU
-                value.contains("duckduckgo.com") -> ENGINE_DUCKDUCKGO
-                value.contains("yahoo.com") -> ENGINE_YAHOO
-                value.contains("yandex.com") -> ENGINE_YANDEX
-                value.contains("so.com") -> ENGINE_360
-                value.contains("sogou.com") -> ENGINE_SOGOU
-                else -> ENGINE_BING
+                lower.contains("google.com") -> SearchEngine.PRESET_GOOGLE
+                lower.contains("bing.com") -> SearchEngine.PRESET_BING
+                lower.contains("baidu.com") -> SearchEngine.PRESET_BAIDU
+                lower.contains("yandex.com") -> SearchEngine.PRESET_YANDEX
+                // If it looks like a valid custom URL, create an on-the-fly custom engine
+                value.startsWith("http://") || value.startsWith("https://") -> {
+                    SearchEngine(
+                        id = "custom_${value.hashCode()}",
+                        name = "自定义",
+                        searchUrl = value,
+                        isPreset = false
+                    )
+                }
+                else -> SearchEngine.PRESET_BING
             }
+        }
+
+        fun normalizeSearchEngine(engineUrl: String?): String {
+            return resolveSearchEngine(engineUrl).searchUrl
         }
 
         fun normalizeThemeMode(mode: String?): String = when (mode) {
@@ -101,12 +135,25 @@ class UserPreferences(private val context: Context) {
             THEME_MODE_MONET_DARK -> THEME_MODE_MONET_DARK
             else -> THEME_MODE_SYSTEM
         }
-        
     }
 
-    val searchEngine: Flow<String> = context.dataStore.data.map { prefs ->
-        normalizeSearchEngine(prefs[SEARCH_ENGINE_KEY])
+    val customSearchEngines: Flow<List<SearchEngine>> = context.dataStore.data.map { prefs ->
+        SearchEngine.parseCustomEnginesJson(prefs[CUSTOM_SEARCH_ENGINES_KEY])
     }
+
+    val allSearchEngines: Flow<List<SearchEngine>> = context.dataStore.data.map { prefs ->
+        val customs = SearchEngine.parseCustomEnginesJson(prefs[CUSTOM_SEARCH_ENGINES_KEY])
+        SearchEngine.PRESET_ENGINES + customs
+    }
+
+    val currentSearchEngine: Flow<SearchEngine> = context.dataStore.data.map { prefs ->
+        val key = prefs[SEARCH_ENGINE_KEY]
+        val customs = SearchEngine.parseCustomEnginesJson(prefs[CUSTOM_SEARCH_ENGINES_KEY])
+        val all = SearchEngine.PRESET_ENGINES + customs
+        resolveSearchEngine(key, all)
+    }
+
+    val searchEngine: Flow<String> = currentSearchEngine.map { it.searchUrl }
 
     val userAgent: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[USER_AGENT_KEY] ?: "MOBILE"
@@ -137,6 +184,10 @@ class UserPreferences(private val context: Context) {
 
     val downloadMode: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[DOWNLOAD_MODE_KEY] ?: DOWNLOAD_MODE_BUILT_IN
+    }
+
+    val downloadPath: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[DOWNLOAD_PATH_KEY]?.takeIf(String::isNotBlank) ?: getDefaultDownloadPath()
     }
 
     val tabViewMode: Flow<String> = context.dataStore.data.map { prefs ->
@@ -177,6 +228,50 @@ class UserPreferences(private val context: Context) {
 
     val privacyBiometricEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[PRIVACY_BIOMETRIC_KEY] ?: false
+    }
+
+    val videoAutoLandscapeEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[VIDEO_AUTO_LANDSCAPE_KEY] ?: true
+    }
+
+    val videoKeepScreenOnEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[VIDEO_KEEP_SCREEN_ON_KEY] ?: true
+    }
+
+    val videoPipAutoEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[VIDEO_PIP_AUTO_KEY] ?: true
+    }
+
+    val videoGestureEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[VIDEO_GESTURE_KEY] ?: true
+    }
+
+    val backgroundPlaybackEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[BACKGROUND_PLAYBACK_KEY] ?: true
+    }
+
+    val mediaSnifferEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[MEDIA_SNIFFER_KEY] ?: true
+    }
+
+    val mediaSnifferFloatingEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[MEDIA_SNIFFER_FLOATING_KEY] ?: false
+    }
+
+    val mediaSnifferBadgeMode: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[MEDIA_SNIFFER_BADGE_MODE_KEY] ?: MEDIA_SNIFFER_BADGE_DOT
+    }
+
+    val edgeSwipeNavigationEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[EDGE_SWIPE_NAVIGATION_KEY] ?: true
+    }
+
+    val smartDarkModeEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[SMART_DARK_MODE_KEY] ?: true
+    }
+
+    val quickScrollButtonEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[QUICK_SCROLL_BUTTON_KEY] ?: true
     }
 
     val adBlockSources: Flow<List<AdBlockSource>> = context.dataStore.data.map { prefs ->
@@ -239,18 +334,56 @@ class UserPreferences(private val context: Context) {
         }
     }
 
-    suspend fun setSearchEngine(engineUrl: String) {
+    suspend fun setSearchEngine(engineIdOrUrl: String) {
         context.dataStore.edit { prefs ->
-            prefs[SEARCH_ENGINE_KEY] = normalizeSearchEngine(engineUrl)
+            prefs[SEARCH_ENGINE_KEY] = engineIdOrUrl.trim()
+        }
+    }
+
+    suspend fun addCustomSearchEngine(name: String, searchUrl: String, suggestionUrl: String = ""): SearchEngine {
+        val id = "custom_${System.currentTimeMillis()}"
+        val newEngine = SearchEngine(
+            id = id,
+            name = name.trim(),
+            searchUrl = searchUrl.trim(),
+            suggestionUrl = suggestionUrl.trim(),
+            isPreset = false
+        )
+        context.dataStore.edit { prefs ->
+            val currentCustoms = SearchEngine.parseCustomEnginesJson(prefs[CUSTOM_SEARCH_ENGINES_KEY]).toMutableList()
+            currentCustoms.add(newEngine)
+            prefs[CUSTOM_SEARCH_ENGINES_KEY] = SearchEngine.serializeCustomEnginesJson(currentCustoms)
+        }
+        return newEngine
+    }
+
+    suspend fun updateCustomSearchEngine(engine: SearchEngine) {
+        context.dataStore.edit { prefs ->
+            val currentCustoms = SearchEngine.parseCustomEnginesJson(prefs[CUSTOM_SEARCH_ENGINES_KEY]).toMutableList()
+            val index = currentCustoms.indexOfFirst { it.id == engine.id }
+            if (index >= 0) {
+                currentCustoms[index] = engine.copy(isPreset = false)
+                prefs[CUSTOM_SEARCH_ENGINES_KEY] = SearchEngine.serializeCustomEnginesJson(currentCustoms)
+            }
+        }
+    }
+
+    suspend fun deleteCustomSearchEngine(id: String) {
+        context.dataStore.edit { prefs ->
+            val currentCustoms = SearchEngine.parseCustomEnginesJson(prefs[CUSTOM_SEARCH_ENGINES_KEY]).toMutableList()
+            currentCustoms.removeAll { it.id == id }
+            prefs[CUSTOM_SEARCH_ENGINES_KEY] = SearchEngine.serializeCustomEnginesJson(currentCustoms)
+            if (prefs[SEARCH_ENGINE_KEY] == id) {
+                prefs[SEARCH_ENGINE_KEY] = SearchEngine.PRESET_BING.id
+            }
         }
     }
 
     suspend fun migrateSearchEngine() {
         context.dataStore.edit { prefs ->
             val current = prefs[SEARCH_ENGINE_KEY]
-            val normalized = normalizeSearchEngine(current)
-            if (current != normalized) {
-                prefs[SEARCH_ENGINE_KEY] = normalized
+            if (current.isNullOrBlank()) {
+                prefs[SEARCH_ENGINE_KEY] = SearchEngine.PRESET_BING.id
             }
         }
     }
@@ -306,6 +439,17 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    suspend fun setDownloadPath(path: String) {
+        context.dataStore.edit { prefs ->
+            prefs[DOWNLOAD_PATH_KEY] = path
+        }
+    }
+
+    fun getDefaultDownloadPath(): String {
+        val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+        return publicDir?.absolutePath ?: "/storage/emulated/0/Download"
+    }
+
     suspend fun setThemeMode(mode: String) {
         context.dataStore.edit { prefs ->
             prefs[THEME_MODE_KEY] = normalizeThemeMode(mode)
@@ -356,6 +500,76 @@ class UserPreferences(private val context: Context) {
     suspend fun setPrivacyBiometricEnabled(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[PRIVACY_BIOMETRIC_KEY] = enabled
+        }
+    }
+
+    suspend fun setVideoAutoLandscapeEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[VIDEO_AUTO_LANDSCAPE_KEY] = enabled
+        }
+    }
+
+    suspend fun setVideoKeepScreenOnEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[VIDEO_KEEP_SCREEN_ON_KEY] = enabled
+        }
+    }
+
+    suspend fun setVideoPipAutoEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[VIDEO_PIP_AUTO_KEY] = enabled
+        }
+    }
+
+    suspend fun setVideoGestureEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[VIDEO_GESTURE_KEY] = enabled
+        }
+    }
+
+    suspend fun setBackgroundPlaybackEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[BACKGROUND_PLAYBACK_KEY] = enabled
+        }
+    }
+
+    suspend fun setMediaSnifferEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[MEDIA_SNIFFER_KEY] = enabled
+        }
+    }
+
+    suspend fun setMediaSnifferFloatingEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[MEDIA_SNIFFER_FLOATING_KEY] = enabled
+        }
+    }
+
+    suspend fun setMediaSnifferBadgeMode(mode: String) {
+        context.dataStore.edit { prefs ->
+            prefs[MEDIA_SNIFFER_BADGE_MODE_KEY] = when (mode) {
+                MEDIA_SNIFFER_BADGE_COUNT -> MEDIA_SNIFFER_BADGE_COUNT
+                MEDIA_SNIFFER_BADGE_NONE -> MEDIA_SNIFFER_BADGE_NONE
+                else -> MEDIA_SNIFFER_BADGE_DOT
+            }
+        }
+    }
+
+    suspend fun setEdgeSwipeNavigationEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[EDGE_SWIPE_NAVIGATION_KEY] = enabled
+        }
+    }
+
+    suspend fun setSmartDarkModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[SMART_DARK_MODE_KEY] = enabled
+        }
+    }
+
+    suspend fun setQuickScrollButtonEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[QUICK_SCROLL_BUTTON_KEY] = enabled
         }
     }
 

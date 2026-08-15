@@ -217,7 +217,8 @@ fun AdBlockSettingsScreen(
                         selectedIndex = selectedIndex,
                         onSelectedIndexChange = { index ->
                             onAutoUpdateIntervalChanged(autoUpdateOptions[index].second)
-                        }
+                        },
+                        renderInRootScaffold = false
                     )
                 }
             }
@@ -267,22 +268,22 @@ fun AdBlockSettingsScreen(
                         onClick = { showAddDialog = true }
                     )
                 }
-                }
-            }
-
-            if (showAddDialog) {
-                AddAdBlockSourceDialog(
-                    onDismiss = { showAddDialog = false },
-                    onAdd = { name, url ->
-                        val newId = "custom_${System.currentTimeMillis()}"
-                        val newSource = AdBlockSource(id = newId, name = name, url = url, isEnabled = true)
-                        onSourcesUpdated(sources + newSource)
-                        showAddDialog = false
-                        onRequestDownload(newSource)
-                    }
-                )
             }
         }
+
+        AddAdBlockSourceDialog(
+            show = showAddDialog,
+            onDismiss = { showAddDialog = false },
+            onAdd = { name, url ->
+                val newId = "custom_${System.currentTimeMillis()}"
+                val newSource = AdBlockSource(id = newId, name = name, url = url, isEnabled = true)
+                onSourcesUpdated(sources + newSource)
+                showAddDialog = false
+                onRequestDownload(newSource)
+            },
+            renderInRootScaffold = false
+        )
     }
+}
 }
 }

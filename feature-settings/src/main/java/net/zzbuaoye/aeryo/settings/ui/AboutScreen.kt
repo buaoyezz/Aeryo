@@ -85,6 +85,7 @@ fun AboutScreen(
     webViewVersion: String,
     versionChannelName: String,
     onBack: () -> Unit,
+    onOpenLicenses: (() -> Unit)? = null,
 ) {
     val lazyListState = rememberLazyListState()
     val topAppBarScrollBehavior = MiuixScrollBehavior()
@@ -148,6 +149,7 @@ fun AboutScreen(
                 lazyListState = lazyListState,
                 scrollBehavior = topAppBarScrollBehavior,
                 scrollProgress = scrollProgress,
+                onOpenLicenses = onOpenLicenses,
             )
         }
     }
@@ -165,6 +167,7 @@ private fun AboutContent(
     lazyListState: LazyListState,
     scrollBehavior: ScrollBehavior,
     scrollProgress: Float,
+    onOpenLicenses: (() -> Unit)? = null,
 ) {
     val uriHandler = LocalUriHandler.current
     val contentBackdrop = rememberMiuixWindowBackdrop()
@@ -224,7 +227,7 @@ private fun AboutContent(
             ) {
                 Image(
                     painter = appIcon,
-                    contentDescription = "Aeryo 图标",
+                    contentDescription = "Aeryo Logo",
                     // Match InstallerX's Miuix About header: keep an 88 dp layout box,
                     // but oversize adaptive-icon artwork so its safe-zone padding does not
                     // make the visible mark look tiny.
@@ -328,6 +331,19 @@ private fun AboutContent(
                 }
             }
 
+            item(key = "build_info") {
+                SmallTitle(text = "系统与构建信息")
+                AboutGlassCard(contentBackdrop, cardBlend) {
+                    if (versionChannelName.isNotBlank() && !versionChannelName.equals("Stable", ignoreCase = true)) {
+                        AboutInfoPreference(title = "通道", value = versionChannelName)
+                    }
+                    AboutInfoPreference(title = "版本", value = versionName)
+                    AboutInfoPreference(title = "构建", value = versionCode.toString())
+                    AboutInfoPreference(title = "WebView", value = webViewVersion)
+                    // AboutInfoPreference(title = "包名", value = packageName)
+                }
+            }
+
             item(key = "project") {
                 SmallTitle(text = "项目")
                 AboutGlassCard(contentBackdrop, cardBlend) {
@@ -345,8 +361,15 @@ private fun AboutContent(
             }
 
             item(key = "open_source") {
-                SmallTitle(text = "开源许可")
+                SmallTitle(text = "开放源代码许可")
                 AboutGlassCard(contentBackdrop, cardBlend) {
+                    if (onOpenLicenses != null) {
+                        AboutLinkPreference(
+                            title = "开放源代码许可",
+                            summary = "查看 Aeryo 所使用的全部开源项目与许可协议",
+                            onClick = onOpenLicenses,
+                        )
+                    }
                     AboutLinkPreference(
                         title = "MIUIX KMP",
                         summary = "HyperOS / MIUI 风格 Compose UI 组件库",
@@ -357,18 +380,6 @@ private fun AboutContent(
                         summary = "矢量图标库",
                         onClick = { uriHandler.openUri(TABLER_ICONS_URL) },
                     )
-                }
-            }
-
-            item(key = "build_info") {
-                SmallTitle(text = "系统与构建信息")
-                AboutGlassCard(contentBackdrop, cardBlend) {
-                    AboutInfoPreference(
-                        title = "更新通道",
-                        value = versionChannelName.ifBlank { "Stable" },
-                    )
-                    AboutInfoPreference(title = "包名", value = packageName)
-                    AboutInfoPreference(title = "系统 WebView 版本", value = webViewVersion)
                 }
             }
 
