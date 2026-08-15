@@ -3,6 +3,32 @@
 .kotlin/
 local.properties
 **/build/
+**/build_*/
+**/build-*/
+.cxx/
+.externalNativeBuild/
+captures/
+
+# Binary & Compiled Artifacts
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+*.so
+*.dylib
+*.dll
+*.bin
+*.tab
+*.tab_*
+*.keystream
+*.len
+*.values.at
+*.hprof
+*.zip
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
 
 # IDE and generated release artifacts
 .vscode/
@@ -15,11 +41,10 @@ release/
 
 # Local scratch, reverse-engineering and visual-QA files
 temp_dir/
+scratch/
+.tempmediaStorage/
 miuix-icons-extracted/
 miuix-icons-classes-extracted/
-*.zip
-*.jar
-!gradle/wrapper/gradle-wrapper.jar
 *.py
 check.kts
 script.kts
@@ -33,6 +58,8 @@ recovered_chunk*.txt
 qa-*.png
 qa-*.xml
 *.log
+update.log
+TODO.md
 aeryo-*.png
 aeryo-*.xml
 screenshot.png
