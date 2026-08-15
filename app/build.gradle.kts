@@ -9,7 +9,7 @@ import java.util.Locale
 // ==============================================================================
 val defaultAeryoVersion = "1.1.0"
 val defaultAeryoChannel = "Stable" // 可选: Stable, Beta, Alpha, RC 等
-val defaultAeryoBuildRevision = "4"
+val defaultAeryoBuildRevision = "5"
 
 // 优先读取 Gradle 命令行/属性参数 (-PaeryoVersion / -PaeryoChannel)，若无则使用上述默认值
 val aeryoVersion = providers.gradleProperty("aeryoVersion")
