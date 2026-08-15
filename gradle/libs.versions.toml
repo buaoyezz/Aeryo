@@ -46,7 +46,7 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
 # Compose Icons (Tabler Icons - MIT License)
-compose-icons-tabler = { module = "br.com.devsrsouza.compose.icons:tabler-icons", version = "1.1.0" }
+compose-icons-tabler = { module = "br.com.devsrsouza.compose.icons:tabler-icons", version = "1.1.1" }
 
 # Reorderable
 compose-reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "composeReorderable" }
