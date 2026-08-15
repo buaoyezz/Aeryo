@@ -2,14 +2,36 @@ package net.zzbuaoye.aeryo.ui
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
 import android.webkit.WebStorage
 import android.webkit.WebViewDatabase
+import android.media.AudioManager
+import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import compose.icons.TablerIcons
+import compose.icons.tablericons.Refresh
+import compose.icons.tablericons.Download
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.ScreenMirroring
+import top.yukonga.miuix.kmp.utils.pressable
+import androidx.compose.ui.text.style.TextOverflow
+import net.zzbuaoye.aeryo.browser.model.ContextMenuTarget
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -41,10 +63,13 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.offset
@@ -53,6 +78,9 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -82,6 +110,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -125,13 +154,17 @@ import net.zzbuaoye.aeryo.downloads.model.DownloadItem
 import net.zzbuaoye.aeryo.downloads.model.DownloadRequest
 import net.zzbuaoye.aeryo.downloads.ui.DownloadConfirmationDialog
 import net.zzbuaoye.aeryo.downloads.ui.DownloadsScreen
+import net.zzbuaoye.aeryo.settings.data.SearchEngine
 import net.zzbuaoye.aeryo.settings.data.UserPreferences
 import net.zzbuaoye.aeryo.settings.ui.AboutScreen
 import net.zzbuaoye.aeryo.settings.ui.AdBlockSettingsScreen
+import net.zzbuaoye.aeryo.settings.ui.OpenSourceLicensesScreen
 import net.zzbuaoye.aeryo.settings.ui.SettingsScreen
 import net.zzbuaoye.aeryo.util.BiometricAuthHelper
 import top.yukonga.miuix.kmp.anim.folmeSpring
 import top.yukonga.miuix.kmp.basic.Badge
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import compose.icons.tablericons.Check
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -164,8 +197,17 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
+private data class CustomViewInfo(
+    val view: View,
+    val callback: WebChromeClient.CustomViewCallback
+)
+
 @Composable
-fun AeryoMainScreen() {
+fun AeryoMainScreen(
+    isPipMode: Boolean = false,
+    onEnterPip: () -> Unit = {},
+    onFullscreenActiveChanged: (Boolean) -> Unit = {}
+) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -179,9 +221,32 @@ fun AeryoMainScreen() {
     val scope = rememberCoroutineScope()
 
     val tabManager = remember { TabManager() }
-    val downloadManager = remember { AeryoDownloadManager(context) }
-    val dao = remember { BookmarkDatabase.getDatabase(context).bookmarkDao() }
     val preferences = remember { UserPreferences(context) }
+    val downloadPath by preferences.downloadPath.collectAsState(initial = preferences.getDefaultDownloadPath())
+    val currentDownloadPathRef = androidx.compose.runtime.rememberUpdatedState(downloadPath)
+    val downloadManager = remember {
+        AeryoDownloadManager(context, downloadDirectoryProvider = { currentDownloadPathRef.value })
+    }
+    val openDirectoryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val path = uri.path?.let { p ->
+                if (p.contains(":")) {
+                    val split = p.split(":")
+                    if (split.size > 1) {
+                        val relative = split[1].trimStart('/')
+                        if (relative.isBlank()) "/storage/emulated/0" else "/storage/emulated/0/$relative"
+                    } else p
+                } else p
+            } ?: "/storage/emulated/0/Download"
+            scope.launch {
+                preferences.setDownloadPath(path)
+                android.widget.Toast.makeText(context, "下载目录已设置为：$path", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val dao = remember { BookmarkDatabase.getDatabase(context).bookmarkDao() }
     val recordedHistoryUrls = remember { mutableMapOf<String, String>() }
     val packageInfo = remember(context) {
         val flags = android.content.pm.PackageManager.GET_META_DATA
@@ -219,7 +284,9 @@ fun AeryoMainScreen() {
     val bookmarks by dao.getAllBookmarks().collectAsState(initial = emptyList())
     val favorites by dao.getAllFavorites().collectAsState(initial = emptyList())
     val history by dao.getAllHistory().collectAsState(initial = emptyList())
-    val searchEngine by preferences.searchEngine.collectAsState(initial = UserPreferences.ENGINE_BING)
+    val currentSearchEngine by preferences.currentSearchEngine.collectAsState(initial = SearchEngine.PRESET_BING)
+    val allSearchEngines by preferences.allSearchEngines.collectAsState(initial = SearchEngine.PRESET_ENGINES)
+    val searchEngine = currentSearchEngine.searchUrl
     val adBlockEnabled by preferences.adBlockEnabled.collectAsState(initial = true)
     val adBlockSources by preferences.adBlockSources.collectAsState(initial = emptyList())
     val adBlockAutoUpdateInterval by preferences.adBlockAutoUpdateInterval.collectAsState(initial = UserPreferences.AD_BLOCK_AUTO_UPDATE_3D)
@@ -239,6 +306,30 @@ fun AeryoMainScreen() {
     val blurEffectEnabled by preferences.blurEffectEnabled.collectAsState(initial = false)
     val effectiveGlassEffectEnabled = glassEffectEnabled && supportsLiquidGlass
     val effectiveBlurEffectEnabled = blurEffectEnabled && supportsBackgroundBlur
+    val videoAutoLandscapeEnabled by preferences.videoAutoLandscapeEnabled.collectAsState(initial = true)
+    val videoKeepScreenOnEnabled by preferences.videoKeepScreenOnEnabled.collectAsState(initial = true)
+    val videoPipAutoEnabled by preferences.videoPipAutoEnabled.collectAsState(initial = true)
+    val videoGestureEnabled by preferences.videoGestureEnabled.collectAsState(initial = true)
+    val backgroundPlaybackEnabled by preferences.backgroundPlaybackEnabled.collectAsState(initial = true)
+    val mediaSnifferEnabled by preferences.mediaSnifferEnabled.collectAsState(initial = true)
+    val mediaSnifferFloatingEnabled by preferences.mediaSnifferFloatingEnabled.collectAsState(initial = false)
+    val mediaSnifferBadgeMode by preferences.mediaSnifferBadgeMode.collectAsState(initial = UserPreferences.MEDIA_SNIFFER_BADGE_DOT)
+    val edgeSwipeNavigationEnabled by preferences.edgeSwipeNavigationEnabled.collectAsState(initial = true)
+    val smartDarkModeEnabled by preferences.smartDarkModeEnabled.collectAsState(initial = true)
+    val quickScrollButtonEnabled by preferences.quickScrollButtonEnabled.collectAsState(initial = true)
+    var showMediaSnifferSheet by remember { mutableStateOf(false) }
+
+    var contextMenuTarget by remember { mutableStateOf<ContextMenuTarget?>(null) }
+    var showReaderMode by remember { mutableStateOf(false) }
+    var readerArticleTitle by remember { mutableStateOf("") }
+    var readerArticleContentHtml by remember { mutableStateOf("") }
+    var readerArticlePlainText by remember { mutableStateOf("") }
+    var readerArticleWordCount by remember { mutableStateOf(0) }
+
+    var currentScrollY by remember { mutableStateOf(0) }
+    var isScrollingUp by remember { mutableStateOf(false) }
+    var edgeSwipeDirection by remember { mutableStateOf(0) } // -1: back, 1: forward
+    var edgeSwipeProgress by remember { mutableStateOf(0f) }
 
     LaunchedEffect(Unit) {
         restoreDefaultLauncherIcon(context)
@@ -259,6 +350,46 @@ fun AeryoMainScreen() {
     val privateHistory by dao.getAllPrivateHistory().collectAsState(initial = emptyList())
     val activity = context as? FragmentActivity
 
+    var customViewInfo by remember { mutableStateOf<CustomViewInfo?>(null) }
+    var showVideoOverlayControls by remember { mutableStateOf(true) }
+    var selectedVideoSpeed by remember { mutableStateOf(1.0f) }
+
+    LaunchedEffect(customViewInfo) {
+        onFullscreenActiveChanged(customViewInfo != null)
+    }
+
+    DisposableEffect(customViewInfo, videoAutoLandscapeEnabled, videoKeepScreenOnEnabled) {
+        if (customViewInfo != null) {
+            val window = activity?.window
+            if (videoAutoLandscapeEnabled) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+            if (videoKeepScreenOnEnabled) {
+                window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            window?.let { win ->
+                val insetsController = WindowCompat.getInsetsController(win, win.decorView)
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+
+            onDispose {
+                if (videoAutoLandscapeEnabled) {
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+                if (videoKeepScreenOnEnabled) {
+                    window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+                window?.let { win ->
+                    val insetsController = WindowCompat.getInsetsController(win, win.decorView)
+                    insetsController.show(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+        } else {
+            onDispose {}
+        }
+    }
+
     var showMenu by remember { mutableStateOf(false) }
     var showTabs by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
@@ -267,9 +398,21 @@ fun AeryoMainScreen() {
     var showSettings by remember { mutableStateOf(false) }
     var showAdBlockSettings by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    var showOpenSourceLicenses by remember { mutableStateOf(false) }
     var showFind by remember { mutableStateOf(false) }
     var addressText by remember { mutableStateOf("") }
     var addressExpanded by remember { mutableStateOf(false) }
+    var addressSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    LaunchedEffect(addressExpanded, addressText, currentSearchEngine) {
+        if (!addressExpanded || !isSearchQueryInput(addressText)) {
+            addressSuggestions = emptyList()
+        } else {
+            delay(200)
+            addressSuggestions = fetchSearchSuggestions(currentSearchEngine, addressText)
+        }
+    }
+
     val downloadItems = remember { mutableStateListOf<DownloadItem>() }
     var pendingDownloadRequest by remember { mutableStateOf<DownloadRequest?>(null) }
     var duplicateDownload by remember { mutableStateOf<DownloadItem?>(null) }
@@ -387,7 +530,7 @@ fun AeryoMainScreen() {
 
     LaunchedEffect(currentTab?.url, currentTab?.title, currentTab?.isLoading, searchEngine, addressExpanded) {
         if (!addressExpanded) {
-            addressText = collapsedAddressText(currentTab)
+            addressText = ""
         }
     }
 
@@ -512,14 +655,22 @@ fun AeryoMainScreen() {
     }
 
     val hasCurrentPage = currentTab?.url?.let { it.isNotBlank() && it != "about:blank" } == true
+    val isCustomViewShowing = customViewInfo != null
     BackHandler(
-        enabled = showMenu || showTabs || showBookmarks || showHistory || showDownloads ||
-            showSettings || showAdBlockSettings || showAbout || showFind ||
-            currentTab?.canGoBack == true || hasCurrentPage
+        enabled = isCustomViewShowing || showMenu || showTabs || showBookmarks || showHistory || showDownloads ||
+            showSettings || showAdBlockSettings || showAbout || showOpenSourceLicenses || showFind ||
+            addressExpanded || currentTab?.canGoBack == true || hasCurrentPage
     ) {
         when {
+            isCustomViewShowing -> {
+                val info = customViewInfo
+                info?.callback?.onCustomViewHidden()
+                (info?.view?.parent as? ViewGroup)?.removeView(info?.view)
+                customViewInfo = null
+            }
             showMenu -> showMenu = false
             showTabs -> showTabs = false
+            showOpenSourceLicenses -> showOpenSourceLicenses = false
             showAbout -> showAbout = false
             showBookmarks -> showBookmarks = false
             showHistory -> showHistory = false
@@ -529,6 +680,11 @@ fun AeryoMainScreen() {
             showFind -> {
                 currentTab?.webView?.clearMatches()
                 showFind = false
+            }
+            addressExpanded -> {
+                addressExpanded = false
+                keyboardController?.hide()
+                focusManager.clearFocus(force = true)
             }
             currentTab?.canGoBack == true || hasCurrentPage -> {
                 val navigated = currentTab?.webView?.let(::safeGoBack) == true
@@ -565,6 +721,8 @@ fun AeryoMainScreen() {
                         text = addressText,
                         expanded = addressExpanded,
                         isBookmarked = rememberBookmarkState(dao, currentTab?.url.orEmpty()),
+                        currentSearchEngine = currentSearchEngine,
+                        allSearchEngines = allSearchEngines,
                         searchEngine = searchEngine,
                         glassEffectEnabled = effectiveGlassEffectEnabled,
                         blurEffectEnabled = effectiveBlurEffectEnabled,
@@ -572,9 +730,15 @@ fun AeryoMainScreen() {
                         onTextChange = { addressText = it },
                         onExpandedChange = { shouldExpand ->
                             if (shouldExpand && !addressExpanded) {
-                                addressText = currentTab?.url
-                                    ?.takeUnless { it.isBlank() || it == "about:blank" }
+                                val activeUrl = currentTab?.webView?.url?.takeUnless { it.isBlank() || it == "about:blank" }
+                                    ?: currentTab?.url?.takeUnless { it.isBlank() || it == "about:blank" }
                                     .orEmpty()
+                                val searchQuery = extractSearchQueryFromUrl(activeUrl)
+                                addressText = when {
+                                    searchQuery != null && searchQuery.isNotBlank() -> searchQuery
+                                    activeUrl.isNotBlank() -> activeUrl
+                                    else -> ""
+                                }
                             }
                             addressExpanded = shouldExpand
                         },
@@ -687,6 +851,8 @@ fun AeryoMainScreen() {
                             animationEnabled = addressBarAnimationEnabled,
                             glassEffectEnabled = effectiveGlassEffectEnabled,
                             blurEffectEnabled = effectiveBlurEffectEnabled,
+                            currentSearchEngine = currentSearchEngine,
+                            allSearchEngines = allSearchEngines,
                             searchEngine = searchEngine,
                             onSearchEngineChange = { scope.launch { preferences.setSearchEngine(it) } },
                             onSearchSubmit = navigateCurrentTab
@@ -694,10 +860,42 @@ fun AeryoMainScreen() {
                         else -> AeryoWebView(
                             tab = currentTab,
                             onTabUpdated = tabManager::updateTab,
+                            nightModeEnabled = nightModeEnabled,
+                            smartDarkModeEnabled = smartDarkModeEnabled,
                             doNotTrackEnabled = doNotTrackEnabled,
                             blockThirdPartyCookies = blockThirdPartyCookies,
+                            mediaSnifferEnabled = mediaSnifferEnabled,
+                            backgroundPlaybackEnabled = backgroundPlaybackEnabled,
+                            onMediaSniffed = { sniffedItem ->
+                                tabManager.updateCurrentTab { tab ->
+                                    if (tab.sniffedMedia.none { it.url == sniffedItem.url }) {
+                                        tab.copy(sniffedMedia = tab.sniffedMedia + sniffedItem)
+                                    } else {
+                                        tab
+                                    }
+                                }
+                            },
+                            onContextMenuRequested = { target ->
+                                contextMenuTarget = target
+                            },
+                            onScrollChanged = { scrollY, isUp ->
+                                currentScrollY = scrollY
+                                isScrollingUp = isUp
+                            },
+                            onCustomViewShow = { view, callback ->
+                                customViewInfo = CustomViewInfo(view, callback)
+                                showVideoOverlayControls = true
+                            },
+                            onCustomViewHide = {
+                                val info = customViewInfo
+                                info?.callback?.onCustomViewHidden()
+                                (info?.view?.parent as? ViewGroup)?.removeView(info?.view)
+                                customViewInfo = null
+                            },
                             onOpenExternalLink = { url ->
-                                val opened = openExternalLink(context, url)
+                                val opened = openExternalLink(context, url) { fallback ->
+                                    currentTab?.webView?.loadUrl(fallback)
+                                }
                                 if (!opened) {
                                     android.widget.Toast.makeText(
                                         context,
@@ -747,14 +945,224 @@ fun AeryoMainScreen() {
                     )
                 }
 
+                AnimatedVisibility(
+                    visible = mediaSnifferEnabled && mediaSnifferFloatingEnabled && currentTab?.sniffedMedia?.isNotEmpty() == true && currentTab?.url != "about:blank" && !showFind,
+                    enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+                    exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MiuixTheme.colorScheme.primary)
+                            .clickable { showMediaSnifferSheet = true }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = TablerIcons.Download,
+                                contentDescription = "嗅探",
+                                tint = MiuixTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "嗅探 (${currentTab?.sniffedMedia?.size ?: 0})",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MiuixTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                }
+
+                // 快捷回顶浮动按钮
+                AnimatedVisibility(
+                    visible = quickScrollButtonEnabled && currentScrollY > 600 && currentTab?.url != "about:blank" && !showFind,
+                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(
+                            end = 16.dp,
+                            bottom = if (mediaSnifferEnabled && currentTab?.sniffedMedia?.isNotEmpty() == true) 68.dp else 16.dp
+                        )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+                            .clickable {
+                                currentTab?.webView?.let { webView ->
+                                    net.zzbuaoye.aeryo.browser.script.UserScriptEngine.scrollToTop(webView)
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = TablerIcons.Refresh,
+                            contentDescription = "回到顶部",
+                            tint = MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // 边缘手势触发区与手势识别
+                if (edgeSwipeNavigationEnabled && currentTab?.url != "about:blank" && currentTab?.canGoBack == true) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(28.dp)
+                            .align(Alignment.CenterStart)
+                            .pointerInput(currentTab?.id) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = {
+                                        edgeSwipeDirection = -1
+                                        edgeSwipeProgress = 0f
+                                    },
+                                    onHorizontalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        edgeSwipeProgress = (edgeSwipeProgress + dragAmount / 180f).coerceIn(0f, 1f)
+                                    },
+                                    onDragEnd = {
+                                        if (edgeSwipeProgress > 0.4f) {
+                                            currentTab?.webView?.takeIf { it.canGoBack() }?.goBack()
+                                        }
+                                        edgeSwipeDirection = 0
+                                        edgeSwipeProgress = 0f
+                                    },
+                                    onDragCancel = {
+                                        edgeSwipeDirection = 0
+                                        edgeSwipeProgress = 0f
+                                    }
+                                )
+                            }
+                    )
+                }
+
+                if (edgeSwipeNavigationEnabled && currentTab?.url != "about:blank" && currentTab?.canGoForward == true) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(28.dp)
+                            .align(Alignment.CenterEnd)
+                            .pointerInput(currentTab?.id) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = {
+                                        edgeSwipeDirection = 1
+                                        edgeSwipeProgress = 0f
+                                    },
+                                    onHorizontalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        edgeSwipeProgress = (edgeSwipeProgress - dragAmount / 180f).coerceIn(0f, 1f)
+                                    },
+                                    onDragEnd = {
+                                        if (edgeSwipeProgress > 0.4f) {
+                                            currentTab?.webView?.takeIf { it.canGoForward() }?.goForward()
+                                        }
+                                        edgeSwipeDirection = 0
+                                        edgeSwipeProgress = 0f
+                                    },
+                                    onDragCancel = {
+                                        edgeSwipeDirection = 0
+                                        edgeSwipeProgress = 0f
+                                    }
+                                )
+                            }
+                    )
+                }
+
+                // 边缘滑动手势 HUD 指示器
+                AnimatedVisibility(
+                    visible = edgeSwipeDirection != 0 && edgeSwipeProgress > 0.05f,
+                    enter = fadeIn(animationSpec = tween(80)),
+                    exit = fadeOut(animationSpec = tween(120)),
+                    modifier = Modifier.align(if (edgeSwipeDirection < 0) Alignment.CenterStart else Alignment.CenterEnd)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = (12f + (edgeSwipeProgress * 24f)).dp)
+                            .size((40f + (edgeSwipeProgress * 12f)).dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (edgeSwipeProgress > 0.4f) MiuixTheme.colorScheme.primary.copy(alpha = 0.95f)
+                                else Color.Black.copy(alpha = 0.65f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (edgeSwipeDirection < 0) MiuixIcons.Back else TablerIcons.Refresh,
+                            contentDescription = if (edgeSwipeDirection < 0) "后退" else "前进",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = addressExpanded && currentTab?.url != "about:blank",
+                    enter = fadeIn(animationSpec = tween(150)),
+                    exit = fadeOut(animationSpec = tween(150)),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(200f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {
+                                    addressExpanded = false
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus(force = true)
+                                }
+                            )
+                    ) {
+                        if (addressSuggestions.isNotEmpty()) {
+                            SearchSuggestionPopup(
+                                suggestions = addressSuggestions,
+                                blurEffectEnabled = effectiveBlurEffectEnabled,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .align(Alignment.TopCenter),
+                                onSuggestionSelected = { suggestion ->
+                                    addressText = suggestion
+                                    addressExpanded = false
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus(force = true)
+                                    navigateCurrentTab(suggestion)
+                                }
+                            )
+                        }
+                    }
+                }
+
                 AeryoMenuBottomSheet(
                     show = showMenu,
                     isIncognito = currentTab?.isIncognito == true,
                     isDesktopMode = currentTab?.isDesktopMode == true,
                     isAdBlockEnabled = adBlockEnabled,
-                    isNightModeEnabled = nightModeEnabled,
+                    isNightModeEnabled = nightModeEnabled || themeMode == UserPreferences.THEME_MODE_MONET_DARK,
                     currentSearchEngine = searchEngine,
+                    allSearchEngines = allSearchEngines,
                     currentSearchQuery = extractSearchQueryFromUrl(currentTab?.url.orEmpty()) ?: if (addressText.isNotBlank() && !addressText.startsWith("http") && !addressText.startsWith("aeryo://")) addressText else "",
+                    currentVideoSpeed = selectedVideoSpeed,
+                    onVideoSpeedChange = { speed ->
+                        selectedVideoSpeed = speed
+                        currentTab?.webView?.evaluateJavascript("window.__aeryoSetVideoSpeed($speed)", null)
+                    },
+                    sniffedMediaCount = currentTab?.sniffedMedia?.size ?: 0,
+                    mediaSnifferBadgeMode = mediaSnifferBadgeMode,
+                    onShowMediaSniffer = { showMediaSnifferSheet = true },
                     menuOrder = menuOrder,
                     onNewTab = {
                         tabManager.createNewTab()
@@ -782,11 +1190,18 @@ fun AeryoMainScreen() {
                     onSaveBookmark = saveCurrentTabToBookmark,
                     onSharePage = {
                         currentTab?.let { tab ->
-                            if (tab.url.isNotBlank() && tab.url != "about:blank") {
+                            val activeUrl = tab.webView?.url?.takeUnless { it.isBlank() || it == "about:blank" }
+                                ?: tab.url.takeUnless { it.isBlank() || it == "about:blank" }
+                            if (!activeUrl.isNullOrBlank()) {
+                                val activeTitle = tab.webView?.title?.takeUnless { it.isBlank() || it == "新标签页" || it == "主页" }
+                                    ?: tab.title.takeUnless { it.isBlank() || it == "新标签页" || it == "主页" }
+                                    ?: ""
+                                val shareText = if (activeTitle.isNotBlank() && activeTitle != activeUrl) "$activeTitle\n$activeUrl" else activeUrl
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
-                                    putExtra(Intent.EXTRA_TITLE, tab.title)
-                                    putExtra(Intent.EXTRA_TEXT, "${tab.title}\n${tab.url}")
+                                    putExtra(Intent.EXTRA_SUBJECT, activeTitle.ifBlank { activeUrl })
+                                    putExtra(Intent.EXTRA_TITLE, activeTitle.ifBlank { activeUrl })
+                                    putExtra(Intent.EXTRA_TEXT, shareText)
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, "分享网页"))
                             }
@@ -808,7 +1223,13 @@ fun AeryoMainScreen() {
                         scope.launch { preferences.setAdBlockEnabled(enabled) }
                     },
                     onNightModeChanged = { enabled ->
-                        scope.launch { preferences.setNightModeEnabled(enabled) }
+                        scope.launch {
+                            preferences.setNightModeEnabled(enabled)
+                            preferences.setThemeMode(
+                                if (enabled) UserPreferences.THEME_MODE_MONET_DARK
+                                else UserPreferences.THEME_MODE_MONET_LIGHT
+                            )
+                        }
                     },
                     onSearchEngineSelected = { engine ->
                         scope.launch { preferences.setSearchEngine(engine) }
@@ -836,7 +1257,45 @@ fun AeryoMainScreen() {
                         showMenu = false
                         showFind = true
                     },
+                    onEnterReaderMode = {
+                        currentTab?.webView?.let { webView ->
+                            net.zzbuaoye.aeryo.browser.script.UserScriptEngine.extractArticleContent(webView) { title, contentHtml, plainText, wordCount ->
+                                readerArticleTitle = title
+                                readerArticleContentHtml = contentHtml
+                                readerArticlePlainText = plainText
+                                readerArticleWordCount = wordCount
+                                showReaderMode = true
+                            }
+                        }
+                    },
                     onDismiss = { showMenu = false }
+                )
+
+                AeryoContextMenuBottomSheet(
+                    show = contextMenuTarget != null,
+                    target = contextMenuTarget,
+                    onDismissRequest = { contextMenuTarget = null },
+                    onOpenInNewTab = { url, isBackground ->
+                        tabManager.createNewTab(url = url)
+                        if (!isBackground) {
+                            tabManager.selectTab(tabManager.state.value.tabs.lastIndex)
+                        }
+                    },
+                    onDownloadImage = { imageUrl ->
+                        val request = downloadManager.createRequest(
+                            url = imageUrl,
+                            userAgent = "Mozilla/5.0",
+                            contentDisposition = "",
+                            mimeType = "image/*",
+                            referer = currentTab?.url
+                        )
+                        duplicateDownload = downloadManager.findDuplicate(request)
+                        pendingDownloadRequest = request
+                    },
+                    onSearchImage = { imageUrl ->
+                        val searchUrl = "https://www.bing.com/images/searchbyimage?cbir=sbi&imgurl=${java.net.URLEncoder.encode(imageUrl, "UTF-8")}"
+                        tabManager.createNewTab(url = searchUrl)
+                    }
                 )
 
                 pendingDownloadRequest?.let { request ->
@@ -853,11 +1312,34 @@ fun AeryoMainScreen() {
                                 request = request,
                                 useBuiltIn = downloadMode == UserPreferences.DOWNLOAD_MODE_BUILT_IN
                             )
+                            android.widget.Toast.makeText(
+                                context,
+                                "已开始下载: ${request.fileName}",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
                             pendingDownloadRequest = null
                             duplicateDownload = null
                         }
                     )
                 }
+
+                MediaSnifferBottomSheet(
+                    show = showMediaSnifferSheet,
+                    mediaList = currentTab?.sniffedMedia.orEmpty(),
+                    onDismissRequest = { showMediaSnifferSheet = false },
+                    onDownloadItem = { item ->
+                        val request = downloadManager.createRequest(
+                            url = item.url,
+                            userAgent = "",
+                            contentDisposition = "",
+                            mimeType = item.mimeType,
+                            referer = currentTab?.url,
+                            contentLength = item.size
+                        )
+                        duplicateDownload = downloadManager.findDuplicate(request)
+                        pendingDownloadRequest = request
+                    }
+                )
 
                 OverlayBottomSheet(
                     show = showTabs && effectiveTabViewMode == UserPreferences.TAB_VIEW_MODE_HALF,
@@ -983,6 +1465,7 @@ fun AeryoMainScreen() {
             HistoryScreen(
                 history = history,
                 privateHistory = privateHistory,
+                isIncognito = currentTab?.isIncognito == true,
                 onUrlSelected = {
                     navigateCurrentTab(it)
                     showHistory = false
@@ -990,7 +1473,10 @@ fun AeryoMainScreen() {
                 onDeleteHistory = { scope.launch { dao.deleteHistory(it) } },
                 onDeletePrivateHistory = { scope.launch { dao.deletePrivateHistory(it) } },
                 onFaviconLoaded = { item, favicon ->
-                    scope.launch { dao.updateHistoryFaviconByUrl(item.url, favicon) }
+                    scope.launch {
+                        dao.updateHistoryFaviconByUrl(item.url, favicon)
+                        dao.updatePrivateHistoryFaviconByUrl(item.url, favicon)
+                    }
                 },
                 onClearAllHistory = { scope.launch { dao.clearHistory() } },
                 onClearAllPrivateHistory = { scope.launch { dao.clearPrivateHistory() } },
@@ -1024,9 +1510,27 @@ fun AeryoMainScreen() {
             modifier = Modifier.fillMaxSize()
         ) {
             SettingsScreen(
-                currentSearchEngine = searchEngine,
+                currentSearchEngine = currentSearchEngine,
+                allSearchEngines = allSearchEngines,
+                onSearchEngineSelected = { engine ->
+                    scope.launch { preferences.setSearchEngine(engine.id) }
+                },
+                onAddCustomEngine = { name, searchUrl, suggestionUrl ->
+                    scope.launch { preferences.addCustomSearchEngine(name, searchUrl, suggestionUrl) }
+                },
+                onUpdateCustomEngine = { engine ->
+                    scope.launch { preferences.updateCustomSearchEngine(engine) }
+                },
+                onDeleteCustomEngine = { id ->
+                    scope.launch { preferences.deleteCustomSearchEngine(id) }
+                },
                 currentAddressBarAnimationEnabled = addressBarAnimationEnabled,
+                currentTabViewMode = tabViewMode,
+                onTabViewModeChanged = { mode ->
+                    scope.launch { preferences.setTabViewMode(mode) }
+                },
                 currentDownloadMode = downloadMode,
+                currentDownloadPath = downloadPath,
                 currentThemeMode = themeMode,
                 currentThemePalette = themePalette,
                 currentThemeKeyColor = themeKeyColor,
@@ -1034,13 +1538,60 @@ fun AeryoMainScreen() {
                 currentDoNotTrackEnabled = doNotTrackEnabled,
                 currentBlockThirdPartyCookies = blockThirdPartyCookies,
                 currentClearOnExit = clearOnExit,
+                currentVideoAutoLandscapeEnabled = videoAutoLandscapeEnabled,
+                currentVideoKeepScreenOnEnabled = videoKeepScreenOnEnabled,
+                currentVideoPipAutoEnabled = videoPipAutoEnabled,
+                currentVideoGestureEnabled = videoGestureEnabled,
+                currentBackgroundPlaybackEnabled = backgroundPlaybackEnabled,
+                currentMediaSnifferEnabled = mediaSnifferEnabled,
+                currentMediaSnifferFloatingEnabled = mediaSnifferFloatingEnabled,
+                currentMediaSnifferBadgeMode = mediaSnifferBadgeMode,
+                currentEdgeSwipeNavigationEnabled = edgeSwipeNavigationEnabled,
+                currentSmartDarkModeEnabled = smartDarkModeEnabled,
+                currentQuickScrollButtonEnabled = quickScrollButtonEnabled,
                 onSearchEngineChanged = { scope.launch { preferences.setSearchEngine(it) } },
                 onAdBlockSettingsClicked = { showAdBlockSettings = true },
                 onAddressBarAnimationToggled = {
                     scope.launch { preferences.setAddressBarAnimationEnabled(it) }
                 },
+                onVideoAutoLandscapeToggled = { enabled ->
+                    scope.launch { preferences.setVideoAutoLandscapeEnabled(enabled) }
+                },
+                onVideoKeepScreenOnToggled = { enabled ->
+                    scope.launch { preferences.setVideoKeepScreenOnEnabled(enabled) }
+                },
+                onVideoPipAutoToggled = { enabled ->
+                    scope.launch { preferences.setVideoPipAutoEnabled(enabled) }
+                },
+                onVideoGestureToggled = { enabled ->
+                    scope.launch { preferences.setVideoGestureEnabled(enabled) }
+                },
+                onBackgroundPlaybackToggled = { enabled ->
+                    scope.launch { preferences.setBackgroundPlaybackEnabled(enabled) }
+                },
+                onMediaSnifferToggled = { enabled ->
+                    scope.launch { preferences.setMediaSnifferEnabled(enabled) }
+                },
+                onMediaSnifferFloatingToggled = { enabled ->
+                    scope.launch { preferences.setMediaSnifferFloatingEnabled(enabled) }
+                },
+                onMediaSnifferBadgeModeChanged = { mode ->
+                    scope.launch { preferences.setMediaSnifferBadgeMode(mode) }
+                },
+                onEdgeSwipeNavigationToggled = { enabled ->
+                    scope.launch { preferences.setEdgeSwipeNavigationEnabled(enabled) }
+                },
+                onSmartDarkModeToggled = { enabled ->
+                    scope.launch { preferences.setSmartDarkModeEnabled(enabled) }
+                },
+                onQuickScrollButtonToggled = { enabled ->
+                    scope.launch { preferences.setQuickScrollButtonEnabled(enabled) }
+                },
                 onDownloadModeChanged = { mode ->
                     scope.launch { preferences.setDownloadMode(mode) }
+                },
+                onPickDownloadPath = {
+                    runCatching { openDirectoryLauncher.launch(null) }
                 },
                 onThemeModeChanged = { mode ->
                     scope.launch { preferences.setThemeMode(mode) }
@@ -1072,28 +1623,97 @@ fun AeryoMainScreen() {
                     scope.launch { preferences.setClearOnExit(enabled) }
                 },
                 onClearData = {
-                    scope.launch {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         dao.clearHistory()
                         dao.clearPrivateHistory()
-                        currentTab?.webView?.apply {
-                            clearHistory()
-                            clearFormData()
-                            clearCache(true)
+                        tabManager.clearClosedTabs()
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            tabs.forEach { it.webView?.apply {
+                                clearHistory()
+                                clearFormData()
+                                clearCache(true)
+                            } }
+                            CookieManager.getInstance().removeAllCookies(null)
+                            CookieManager.getInstance().flush()
+                            WebStorage.getInstance().deleteAllData()
+                            WebViewDatabase.getInstance(context).clearFormData()
+                            WebViewDatabase.getInstance(context).clearHttpAuthUsernamePassword()
+                            android.widget.Toast.makeText(
+                                context,
+                                "浏览数据已全部清除",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
                         }
-                        CookieManager.getInstance().removeAllCookies(null)
-                        CookieManager.getInstance().flush()
-                        WebStorage.getInstance().deleteAllData()
-                        WebViewDatabase.getInstance(context).clearFormData()
-                        WebViewDatabase.getInstance(context).clearHttpAuthUsernamePassword()
-                        android.widget.Toast.makeText(
-                            context,
-                            "浏览数据已清除",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
+                    }
+                },
+                onClearCustomData = { options ->
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        if (options.clearHistory) {
+                            dao.clearHistory()
+                            dao.clearPrivateHistory()
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                tabs.forEach { it.webView?.clearHistory() }
+                            }
+                        }
+                        if (options.clearClosedTabs) {
+                            tabManager.clearClosedTabs()
+                        }
+                        if (options.clearCache) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                tabs.forEach { it.webView?.clearCache(true) }
+                            }
+                            runCatching { context.cacheDir.deleteRecursively() }
+                        }
+                        if (options.clearFormData) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                WebViewDatabase.getInstance(context).clearFormData()
+                                WebViewDatabase.getInstance(context).clearHttpAuthUsernamePassword()
+                                tabs.forEach { it.webView?.clearFormData() }
+                            }
+                        }
+                        if (options.clearWebStorage) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                WebStorage.getInstance().deleteAllData()
+                                android.webkit.GeolocationPermissions.getInstance().clearAll()
+                            }
+                        }
+                        if (options.clearCookies) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                CookieManager.getInstance().removeAllCookies(null)
+                                CookieManager.getInstance().flush()
+                            }
+                        }
+                        if (options.clearAppCache) {
+                            runCatching { context.codeCacheDir.deleteRecursively() }
+                            runCatching { context.externalCacheDir?.deleteRecursively() }
+                        }
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "已成功清理选中的数据",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }
                 },
                 onOpenAbout = { showAbout = true },
                 onBack = { showSettings = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showReaderMode,
+            enter = fullScreenEnterTransition(),
+            exit = fullScreenExitTransition(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            ReaderModeScreen(
+                title = readerArticleTitle,
+                contentHtml = readerArticleContentHtml,
+                plainText = readerArticlePlainText,
+                wordCount = readerArticleWordCount,
+                url = currentTab?.url.orEmpty(),
+                onBack = { showReaderMode = false }
             )
         }
 
@@ -1156,10 +1776,500 @@ fun AeryoMainScreen() {
                 packageName = context.packageName,
                 webViewVersion = webViewVersion,
                 versionChannelName = versionChannelName,
-                onBack = { showAbout = false }
+                onBack = { showAbout = false },
+                onOpenLicenses = { showOpenSourceLicenses = true }
             )
         }
 
+        AnimatedVisibility(
+            visible = showOpenSourceLicenses,
+            enter = fullScreenEnterTransition(),
+            exit = fullScreenExitTransition(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            OpenSourceLicensesScreen(
+                onBack = { showOpenSourceLicenses = false }
+            )
+        }
+
+        if (customViewInfo != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .zIndex(1000f)
+            ) {
+                AndroidView<FrameLayout>(
+                    factory = { ctx ->
+                        FrameLayout(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            setBackgroundColor(android.graphics.Color.BLACK)
+                            customViewInfo?.view?.let { cv ->
+                                (cv.parent as? ViewGroup)?.removeView(cv)
+                                addView(
+                                    cv,
+                                    ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                )
+                            }
+                        }
+                    },
+                    update = { frameLayout ->
+                        val currentChild = if (frameLayout.childCount > 0) frameLayout.getChildAt(0) else null
+                        val targetView = customViewInfo?.view
+                        if (targetView != null && currentChild != targetView) {
+                            frameLayout.removeAllViews()
+                            (targetView.parent as? ViewGroup)?.removeView(targetView)
+                            frameLayout.addView(
+                                targetView,
+                                ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                if (!isPipMode) {
+                    FullscreenVideoOverlayUI(
+                        title = currentTab?.title.orEmpty().takeUnless { it == "about:blank" || it == "新标签页" } ?: "全屏播放",
+                        currentSpeed = selectedVideoSpeed,
+                        videoGestureEnabled = videoGestureEnabled,
+                        onSpeedChanged = { speed ->
+                            selectedVideoSpeed = speed
+                            currentTab?.webView?.evaluateJavascript("window.__aeryoSetVideoSpeed($speed)", null)
+                        },
+                        onToggleOrientation = {
+                            activity?.let { act ->
+                                val isLandscape = act.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE ||
+                                    act.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                act.requestedOrientation = if (isLandscape) {
+                                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                } else {
+                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                }
+                            }
+                        },
+                        onEnterPip = onEnterPip,
+                        onSeek = { offset ->
+                            currentTab?.webView?.evaluateJavascript("window.__aeryoSeekVideo($offset)", null)
+                        },
+                        onTogglePlay = {
+                            currentTab?.webView?.evaluateJavascript("window.__aeryoTogglePlay()", null)
+                        },
+                        onBoostSpeedStart = {
+                            currentTab?.webView?.evaluateJavascript("window.__aeryoBoostSpeed(2.0)", null)
+                        },
+                        onBoostSpeedEnd = {
+                            currentTab?.webView?.evaluateJavascript("window.__aeryoRestoreSpeed()", null)
+                        },
+                        onExitFullscreen = {
+                            val info = customViewInfo
+                            info?.callback?.onCustomViewHidden()
+                            (info?.view?.parent as? ViewGroup)?.removeView(info?.view)
+                            customViewInfo = null
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private enum class FullscreenGestureHud {
+    NONE, BRIGHTNESS, VOLUME, SEEK, PLAY_PAUSE, SPEED_BOOST
+}
+
+@Composable
+private fun FullscreenVideoOverlayUI(
+    title: String,
+    currentSpeed: Float,
+    videoGestureEnabled: Boolean = true,
+    onSpeedChanged: (Float) -> Unit,
+    onToggleOrientation: () -> Unit,
+    onEnterPip: () -> Unit,
+    onSeek: (Int) -> Unit,
+    onTogglePlay: () -> Unit,
+    onBoostSpeedStart: () -> Unit,
+    onBoostSpeedEnd: () -> Unit,
+    onExitFullscreen: () -> Unit
+) {
+    val context = LocalContext.current
+    val activity = context as? FragmentActivity
+    val audioManager = remember(context) { context.getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager }
+    val maxVolume = remember(audioManager) { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
+
+    var isControlVisible by remember { mutableStateOf(true) }
+    var hideJobTrigger by remember { mutableStateOf(0) }
+    val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
+
+    var hudType by remember { mutableStateOf(FullscreenGestureHud.NONE) }
+    var brightnessLevel by remember { mutableStateOf(0.5f) }
+    var volumeLevel by remember { mutableStateOf(0.5f) }
+    var seekOffsetSeconds by remember { mutableStateOf(0) }
+    var isBoostingSpeed by remember { mutableStateOf(false) }
+
+    var initialBrightness by remember { mutableStateOf(0.5f) }
+    var initialVolume by remember { mutableStateOf(0.5f) }
+    var dragDirection by remember { mutableStateOf(0) } // 0: none, 1: horizontal (seek), 2: vertical
+    var isLeftSide by remember { mutableStateOf(false) }
+    var accumulatedDeltaX by remember { mutableStateOf(0f) }
+    var accumulatedDeltaY by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(hideJobTrigger, isControlVisible) {
+        if (isControlVisible) {
+            delay(4000)
+            isControlVisible = false
+        }
+    }
+
+    LaunchedEffect(hudType) {
+        if (hudType == FullscreenGestureHud.PLAY_PAUSE) {
+            delay(1200)
+            if (hudType == FullscreenGestureHud.PLAY_PAUSE) {
+                hudType = FullscreenGestureHud.NONE
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(videoGestureEnabled) {
+                detectTapGestures(
+                    onTap = {
+                        if (isBoostingSpeed) {
+                            isBoostingSpeed = false
+                            hudType = FullscreenGestureHud.NONE
+                            onBoostSpeedEnd()
+                        } else {
+                            isControlVisible = !isControlVisible
+                            if (isControlVisible) hideJobTrigger++
+                        }
+                    },
+                    onDoubleTap = {
+                        if (videoGestureEnabled) {
+                            onTogglePlay()
+                            hudType = FullscreenGestureHud.PLAY_PAUSE
+                            hideJobTrigger++
+                        }
+                    },
+                    onLongPress = {
+                        if (videoGestureEnabled) {
+                            isBoostingSpeed = true
+                            hudType = FullscreenGestureHud.SPEED_BOOST
+                            onBoostSpeedStart()
+                        }
+                    }
+                )
+            }
+            .pointerInput(videoGestureEnabled) {
+                if (!videoGestureEnabled) return@pointerInput
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        dragDirection = 0
+                        accumulatedDeltaX = 0f
+                        accumulatedDeltaY = 0f
+                        isLeftSide = offset.x < (size.width / 2)
+
+                        val curBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
+                        initialBrightness = if (curBrightness < 0) 0.5f else curBrightness
+                        val curVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        initialVolume = curVol.toFloat() / maxVolume
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        accumulatedDeltaX += dragAmount.x
+                        accumulatedDeltaY += dragAmount.y
+
+                        if (dragDirection == 0) {
+                            if (kotlin.math.abs(accumulatedDeltaX) > 24 && kotlin.math.abs(accumulatedDeltaX) > kotlin.math.abs(accumulatedDeltaY)) {
+                                dragDirection = 1
+                            } else if (kotlin.math.abs(accumulatedDeltaY) > 24) {
+                                dragDirection = 2
+                            }
+                        }
+
+                        if (dragDirection == 1) {
+                            hudType = FullscreenGestureHud.SEEK
+                            seekOffsetSeconds = (accumulatedDeltaX / 12f).toInt().coerceIn(-90, 90)
+                        } else if (dragDirection == 2) {
+                            val ratio = -accumulatedDeltaY / (size.height * 0.7f)
+                            if (isLeftSide) {
+                                hudType = FullscreenGestureHud.BRIGHTNESS
+                                val target = (initialBrightness + ratio).coerceIn(0.01f, 1.0f)
+                                brightnessLevel = target
+                                val win = activity?.window
+                                if (win != null) {
+                                    val lp = win.attributes
+                                    lp.screenBrightness = target
+                                    win.attributes = lp
+                                }
+                            } else {
+                                hudType = FullscreenGestureHud.VOLUME
+                                val target = (initialVolume + ratio).coerceIn(0f, 1.0f)
+                                volumeLevel = target
+                                val streamVol = (target * maxVolume).toInt().coerceIn(0, maxVolume)
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, streamVol, 0)
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        if (dragDirection == 1 && seekOffsetSeconds != 0) {
+                            onSeek(seekOffsetSeconds)
+                        }
+                        if (isBoostingSpeed) {
+                            isBoostingSpeed = false
+                            onBoostSpeedEnd()
+                        }
+                        hudType = FullscreenGestureHud.NONE
+                        dragDirection = 0
+                        accumulatedDeltaX = 0f
+                        accumulatedDeltaY = 0f
+                    },
+                    onDragCancel = {
+                        if (isBoostingSpeed) {
+                            isBoostingSpeed = false
+                            onBoostSpeedEnd()
+                        }
+                        hudType = FullscreenGestureHud.NONE
+                        dragDirection = 0
+                        accumulatedDeltaX = 0f
+                        accumulatedDeltaY = 0f
+                    }
+                )
+            }
+    ) {
+        // Center Floating Gesture HUDs
+        AnimatedVisibility(
+            visible = hudType != FullscreenGestureHud.NONE,
+            enter = fadeIn(animationSpec = tween(100)),
+            exit = fadeOut(animationSpec = tween(180)),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            when (hudType) {
+                FullscreenGestureHud.BRIGHTNESS -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.Black.copy(alpha = 0.82f))
+                            .padding(horizontal = 24.dp, vertical = 18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(imageVector = TablerIcons.Refresh, contentDescription = "亮度", tint = Color.White, modifier = Modifier.size(30.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(text = "亮度 ${(brightnessLevel * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+                FullscreenGestureHud.VOLUME -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.Black.copy(alpha = 0.82f))
+                            .padding(horizontal = 24.dp, vertical = 18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(imageVector = TablerIcons.Download, contentDescription = "音量", tint = Color.White, modifier = Modifier.size(30.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(text = "音量 ${(volumeLevel * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+                FullscreenGestureHud.SEEK -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.Black.copy(alpha = 0.82f))
+                            .padding(horizontal = 28.dp, vertical = 18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (seekOffsetSeconds >= 0) "⏩ +${seekOffsetSeconds}s" else "⏪ ${seekOffsetSeconds}s",
+                            color = Color.White,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                FullscreenGestureHud.PLAY_PAUSE -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.Black.copy(alpha = 0.82f))
+                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "⏯ 播放/暂停", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                FullscreenGestureHud.SPEED_BOOST -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.92f))
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "🚀 2.0x 极速快进中",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                FullscreenGestureHud.NONE -> Unit
+            }
+        }
+
+        // Top & Bottom Control Bars
+        AnimatedVisibility(
+            visible = isControlVisible,
+            enter = fadeIn(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(180)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.75f),
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.82f)
+                            )
+                        )
+                    )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = 24.dp, vertical = 18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        IconButton(
+                            onClick = onExitFullscreen,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.22f))
+                        ) {
+                            Icon(
+                                imageVector = MiuixIcons.Back,
+                                contentDescription = "退出全屏",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Text(
+                            text = title,
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        IconButton(
+                            onClick = onEnterPip,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.22f))
+                        ) {
+                            Icon(
+                                imageVector = MiuixIcons.ScreenMirroring,
+                                contentDescription = "画中画",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onToggleOrientation,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.22f))
+                        ) {
+                            Icon(
+                                imageVector = TablerIcons.Refresh,
+                                contentDescription = "旋转屏幕",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 24.dp, vertical = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "播放倍速",
+                        color = Color.White.copy(alpha = 0.75f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        speedOptions.forEach { speed ->
+                            val isSelected = kotlin.math.abs(currentSpeed - speed) < 0.01f
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (isSelected) MiuixTheme.colorScheme.primary else Color.White.copy(alpha = 0.18f)
+                                    )
+                                    .clickable {
+                                        onSpeedChanged(speed)
+                                        hideJobTrigger++
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${speed}x",
+                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.9f),
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1228,14 +2338,19 @@ private fun AeryoGlassSurface(
             end = Offset(900f, 420f)
         )
     }
+    val borderAlpha = if (shape == androidx.compose.ui.graphics.RectangleShape) 0f else if (liquidGlassEnabled) 0.22f else if (blurEnabled) 0.12f else 0f
     Box(
         modifier = modifier
             .clip(shape)
             .background(surfaceColor)
-            .border(
-                width = 0.75.dp,
-                color = Color.White.copy(alpha = if (liquidGlassEnabled) 0.26f else if (blurEnabled) 0.14f else 0f),
-                shape = shape
+            .then(
+                if (borderAlpha > 0f) {
+                    Modifier.border(
+                        width = 0.75.dp,
+                        color = Color.White.copy(alpha = borderAlpha),
+                        shape = shape
+                    )
+                } else Modifier
             )
     ) {
         Canvas(modifier = Modifier.matchParentSize()) {
@@ -1313,34 +2428,153 @@ private fun AeryoSearchInputField(
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSearch(fieldValue.text) }),
         decorationBox = { innerTextField ->
-            AeryoGlassSurface(
-                liquidGlassEnabled = liquidGlassEnabled,
-                blurEnabled = blurEnabled,
-                shape = CircleShape,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+            if (liquidGlassEnabled || blurEnabled) {
+                AeryoGlassSurface(
+                    liquidGlassEnabled = liquidGlassEnabled,
+                    blurEnabled = blurEnabled,
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    leadingIcon?.invoke()
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 46.dp),
-                        contentAlignment = Alignment.CenterStart
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (fieldValue.text.isEmpty() && !expanded) {
-                            Text(
-                                text = label,
-                                color = MiuixTheme.colorScheme.onSurfaceContainerHigh,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                        leadingIcon?.invoke()
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 46.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (fieldValue.text.isEmpty() && !expanded) {
+                                Text(
+                                    text = label,
+                                    color = MiuixTheme.colorScheme.onSurfaceContainerHigh,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            innerTextField()
                         }
-                        innerTextField()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            trailingIcon?.invoke()
+                            if (expanded) {
+                                if (fieldValue.text.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            fieldValue = TextFieldValue("")
+                                            onQueryChange("")
+                                            focusRequester.requestFocus()
+                                        },
+                                        modifier = Modifier.size(34.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = MiuixIcons.Close,
+                                            contentDescription = "清空输入",
+                                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (fieldValue.text.isNotBlank()) {
+                                            onSearch(fieldValue.text)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .padding(end = 2.dp)
+                                        .size(34.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = MiuixIcons.ChevronForward,
+                                        contentDescription = "确认搜索",
+                                        tint = if (fieldValue.text.isNotBlank()) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
-                    trailingIcon?.invoke()
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(CircleShape)
+                        .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        leadingIcon?.invoke()
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 46.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (fieldValue.text.isEmpty() && !expanded) {
+                                Text(
+                                    text = label,
+                                    color = MiuixTheme.colorScheme.onSurfaceContainerHigh,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            innerTextField()
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            trailingIcon?.invoke()
+                            if (expanded) {
+                                if (fieldValue.text.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            fieldValue = TextFieldValue("")
+                                            onQueryChange("")
+                                            focusRequester.requestFocus()
+                                        },
+                                        modifier = Modifier.size(34.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = MiuixIcons.Close,
+                                            contentDescription = "清空输入",
+                                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (fieldValue.text.isNotBlank()) {
+                                            onSearch(fieldValue.text)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .padding(end = 2.dp)
+                                        .size(34.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = MiuixIcons.ChevronForward,
+                                        contentDescription = "确认搜索",
+                                        tint = if (fieldValue.text.isNotBlank()) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1354,7 +2588,9 @@ private fun BrowserAddressBar(
     text: String,
     expanded: Boolean,
     isBookmarked: Boolean,
-    searchEngine: String = UserPreferences.ENGINE_BING,
+    currentSearchEngine: SearchEngine = SearchEngine.PRESET_BING,
+    allSearchEngines: List<SearchEngine> = SearchEngine.PRESET_ENGINES,
+    searchEngine: String = currentSearchEngine.searchUrl,
     glassEffectEnabled: Boolean = true,
     blurEffectEnabled: Boolean = false,
     onSearchEngineChange: (String) -> Unit = {},
@@ -1365,30 +2601,15 @@ private fun BrowserAddressBar(
     onSavePrivateHistory: () -> Unit = {}
 ) {
     val isIncognito = tab?.isIncognito == true
-    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
-    LaunchedEffect(expanded, text, searchEngine) {
-        if (!expanded || !isSearchQueryInput(text)) {
-            suggestions = emptyList()
-        } else {
-            delay(220)
-            suggestions = fetchSearchSuggestions(searchEngine, text)
-        }
-    }
-    AeryoGlassSurface(
-        liquidGlassEnabled = glassEffectEnabled,
-        blurEnabled = blurEffectEnabled,
-        shape = androidx.compose.ui.graphics.RectangleShape,
+    Surface(
+        color = if (isIncognito) androidx.compose.ui.graphics.Color(0xFF181524) else MiuixTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    if (isIncognito) androidx.compose.ui.graphics.Color(0xFF181524).copy(alpha = if (glassEffectEnabled || blurEffectEnabled) 0.88f else 1f)
-                    else if (glassEffectEnabled || blurEffectEnabled) Color.Transparent
-                    else MiuixTheme.colorScheme.background
-                )
                 .statusBarsPadding()
+                .padding(bottom = 2.dp)
         ) {
         AeryoSearchInputField(
             query = text,
@@ -1397,11 +2618,11 @@ private fun BrowserAddressBar(
             expanded = expanded,
             onExpandedChange = onExpandedChange,
             selectAllOnExpand = true,
-            label = if (tab?.url == "about:blank") {
+            label = if (tab?.url == "about:blank" || tab?.url.isNullOrBlank()) {
                 if (isIncognito) "无痕模式 - 搜索或输入网址" else "搜索或输入网址"
             } else collapsedAddressText(tab),
-            liquidGlassEnabled = glassEffectEnabled,
-            blurEnabled = blurEffectEnabled,
+            liquidGlassEnabled = false,
+            blurEnabled = false,
                 leadingIcon = {
                     Icon(
                         imageVector = when {
@@ -1427,18 +2648,20 @@ private fun BrowserAddressBar(
             trailingIcon = if (isHome) {
                     {
                         SearchEngineSwitchButton(
-                            currentEngine = searchEngine,
+                            currentEngine = currentSearchEngine,
+                            allEngines = allSearchEngines,
                             isInputting = expanded,
-                            onEngineChanged = onSearchEngineChange
+                            onEngineChanged = { onSearchEngineChange(it.id) }
                         )
                     }
                 } else {
                     {
                         if (expanded) {
                             SearchEngineSwitchButton(
-                                currentEngine = searchEngine,
+                                currentEngine = currentSearchEngine,
+                                allEngines = allSearchEngines,
                                 isInputting = expanded,
-                                onEngineChanged = onSearchEngineChange
+                                onEngineChanged = { onSearchEngineChange(it.id) }
                             )
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1497,17 +2720,6 @@ private fun BrowserAddressBar(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp)
         )
-        if (expanded && suggestions.isNotEmpty()) {
-            SearchSuggestionPopup(
-                suggestions = suggestions,
-                blurEffectEnabled = blurEffectEnabled,
-                onSuggestionSelected = { suggestion ->
-                    onTextChange(suggestion)
-                    onExpandedChange(false)
-                    onSubmit(suggestion)
-                }
-            )
-        }
         AnimatedVisibility(
             visible = tab?.isLoading == true,
             enter = fadeIn(animationSpec = tween(180)),
@@ -1631,7 +2843,9 @@ private fun AeryoHomeScreen(
     animationEnabled: Boolean,
     glassEffectEnabled: Boolean = false,
     blurEffectEnabled: Boolean = false,
-    searchEngine: String = UserPreferences.ENGINE_BING,
+    currentSearchEngine: SearchEngine = SearchEngine.PRESET_BING,
+    allSearchEngines: List<SearchEngine> = SearchEngine.PRESET_ENGINES,
+    searchEngine: String = currentSearchEngine.searchUrl,
     onSearchEngineChange: (String) -> Unit = {},
     onSearchSubmit: (String) -> Unit
 ) {
@@ -1641,12 +2855,12 @@ private fun AeryoHomeScreen(
     var searchInputGeneration by remember { mutableStateOf(0) }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(expanded, query, searchEngine) {
+    LaunchedEffect(expanded, query, currentSearchEngine) {
         if (!expanded || !isSearchQueryInput(query)) {
             suggestions = emptyList()
         } else {
             delay(220)
-            suggestions = fetchSearchSuggestions(searchEngine, query)
+            suggestions = fetchSearchSuggestions(currentSearchEngine, query)
         }
     }
     BoxWithConstraints(
@@ -1743,9 +2957,10 @@ private fun AeryoHomeScreen(
                 trailingIcon = if (expanded) {
                     {
                         SearchEngineSwitchButton(
-                            currentEngine = searchEngine,
+                            currentEngine = currentSearchEngine,
+                            allEngines = allSearchEngines,
                             isInputting = expanded,
-                            onEngineChanged = onSearchEngineChange
+                            onEngineChanged = { onSearchEngineChange(it.id) }
                         )
                     }
                 } else null,
@@ -1753,6 +2968,7 @@ private fun AeryoHomeScreen(
                     .align(Alignment.TopCenter)
                     .offset(y = searchOffsetY)
                     .fillMaxWidth()
+                    .zIndex(100f)
             )
         }
         if (expanded && suggestions.isNotEmpty()) {
@@ -1762,7 +2978,8 @@ private fun AeryoHomeScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .offset(y = searchOffsetY + 66.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .zIndex(100f),
                 onSuggestionSelected = { suggestion ->
                     query = ""
                     searchInputGeneration++
@@ -1817,13 +3034,16 @@ private suspend fun net.zzbuaoye.aeryo.bookmarks.data.BookmarkDao.isBookmarkedNo
 }
 
 private fun processUrlInput(input: String, searchEngine: String): String {
-    val value = input.trim()
+    var value = input.trim()
     if (value.isEmpty()) return "about:blank"
     if (value.startsWith("aeryo://")) return value
     if (value.startsWith("aeryo:", ignoreCase = true)) return "aeryo://" + value.substringAfter("aeryo:").trimStart('/')
-    if (value.startsWith("http://") || value.startsWith("https://")) return value
+    while (value.startsWith("https://https://", ignoreCase = true) || value.startsWith("http://http://", ignoreCase = true) || value.startsWith("https://https/", ignoreCase = true)) {
+        value = if (value.startsWith("https://https/")) value.replaceFirst("https://https/", "https://") else value.substring(8)
+    }
+    if (value.startsWith("http://", ignoreCase = true) || value.startsWith("https://", ignoreCase = true)) return value
     if (value.contains(".") && !value.contains(" ")) return "https://$value"
-    return "$searchEngine${Uri.encode(value)}"
+    return buildSearchUrl(searchEngine, value)
 }
 
 private fun collapsedAddressText(tab: WebTab?): String {
@@ -1835,31 +3055,71 @@ private fun collapsedAddressText(tab: WebTab?): String {
     return url
 }
 
-private fun openExternalLink(context: android.content.Context, rawUrl: String): Boolean {
-    val intent = runCatching {
-        if (rawUrl.startsWith("intent:", ignoreCase = true)) {
-            Intent.parseUri(rawUrl, Intent.URI_INTENT_SCHEME)
-        } else {
-            Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl))
-        }
-    }.getOrNull() ?: return false
+private fun openExternalLink(
+    context: android.content.Context,
+    rawUrl: String,
+    onFallbackUrl: ((String) -> Unit)? = null
+): Boolean {
+    if (rawUrl.isBlank()) return false
+    val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return false
+    val scheme = uri.scheme?.lowercase() ?: return false
 
-    val launchIntent = if (intent.resolveActivity(context.packageManager) != null) {
-        intent
-    } else {
-        val fallbackUrl = intent.getStringExtra("browser_fallback_url") ?: return false
-        Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl))
+    if (scheme == "about" || scheme == "javascript" || scheme == "data" || scheme == "blob") {
+        return false
     }
-    return try {
-        if (context !is android.app.Activity) {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    try {
+        if (rawUrl.startsWith("intent:", ignoreCase = true)) {
+            val parsed = Intent.parseUri(rawUrl, Intent.URI_INTENT_SCHEME)
+            if (context !is android.app.Activity) {
+                parsed.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            try {
+                context.startActivity(parsed)
+                return true
+            } catch (e: Exception) {
+                val fallbackUrl = parsed.getStringExtra("browser_fallback_url")
+                if (!fallbackUrl.isNullOrBlank()) {
+                    if (fallbackUrl.startsWith("http://", ignoreCase = true) || fallbackUrl.startsWith("https://", ignoreCase = true)) {
+                        if (onFallbackUrl != null) {
+                            onFallbackUrl(fallbackUrl)
+                            return true
+                        }
+                    }
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).apply {
+                        if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    return runCatching {
+                        context.startActivity(fallbackIntent)
+                        true
+                    }.getOrDefault(false)
+                }
+                val packageName = parsed.`package`
+                if (!packageName.isNullOrBlank()) {
+                    val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")).apply {
+                        if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    return runCatching {
+                        context.startActivity(marketIntent)
+                        true
+                    }.getOrDefault(false)
+                }
+                return false
+            }
+        } else {
+            val launchIntent = Intent(Intent.ACTION_VIEW, uri)
+            if (context !is android.app.Activity) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(launchIntent)
+            return true
         }
-        context.startActivity(launchIntent)
-        true
-    } catch (_: ActivityNotFoundException) {
-        false
-    } catch (_: SecurityException) {
-        false
+    } catch (e: ActivityNotFoundException) {
+        return false
+    } catch (e: SecurityException) {
+        return false
+    } catch (e: Exception) {
+        return false
     }
 }
 
@@ -1983,7 +3243,12 @@ private fun isSameSearchEngineHost(host1: String, host2: String): Boolean {
 private fun Int?.orZero(): Int = this ?: 0
 
 private fun buildSearchUrl(searchEngine: String, query: String): String {
-    return searchEngine + Uri.encode(query)
+    val encoded = Uri.encode(query)
+    return if (searchEngine.contains("%s")) {
+        searchEngine.replace("%s", encoded)
+    } else {
+        "$searchEngine$encoded"
+    }
 }
 
 private fun extractSearchQueryFromUrl(url: String): String? {
@@ -2027,21 +3292,44 @@ private fun SearchSuggestionPopup(
     blurEffectEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
-    AeryoGlassSurface(
-        liquidGlassEnabled = false,
-        blurEnabled = blurEffectEnabled,
-        shape = RoundedCornerShape(22.dp),
+    Surface(
+        color = MiuixTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(20.dp),
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp)
-            .heightIn(max = 320.dp)
+            .shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(20.dp),
+                ambientColor = Color.Black.copy(alpha = 0.18f),
+                spotColor = Color.Black.copy(alpha = 0.28f)
+            )
+            .border(
+                width = 0.6.dp,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(20.dp)
+            )
     ) {
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
-            items(suggestions, key = { it }) { suggestion ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 280.dp)
+                .padding(vertical = 4.dp)
+        ) {
+            items(
+                items = suggestions,
+                key = { it }
+            ) { suggestion ->
+                val interactionSource = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSuggestionSelected(suggestion) }
+                        .pressable(interactionSource)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = { onSuggestionSelected(suggestion) }
+                        )
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -2055,7 +3343,17 @@ private fun SearchSuggestionPopup(
                     Text(
                         text = suggestion,
                         color = MiuixTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = MiuixIcons.ChevronForward,
+                        contentDescription = null,
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.4f),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -2063,26 +3361,11 @@ private fun SearchSuggestionPopup(
     }
 }
 
-private suspend fun fetchSearchSuggestions(searchEngine: String, query: String): List<String> {
+private suspend fun fetchSearchSuggestions(searchEngine: SearchEngine, query: String): List<String> {
     val value = query.trim()
     if (value.isEmpty()) return emptyList()
+    val endpoint = searchEngine.buildSuggestionUrl(value) ?: return emptyList()
     return withContext(Dispatchers.IO) {
-        val encoded = Uri.encode(value)
-        val endpoint = when {
-            searchEngine.contains("google", ignoreCase = true) ->
-                "https://suggestqueries.google.com/complete/search?client=firefox&q=$encoded"
-            searchEngine.contains("bing", ignoreCase = true) ->
-                "https://www.bing.com/osjson.aspx?query=$encoded"
-            searchEngine.contains("duckduckgo", ignoreCase = true) ->
-                "https://duckduckgo.com/ac/?q=$encoded"
-            searchEngine.contains("baidu", ignoreCase = true) ->
-                "https://suggestion.baidu.com/su?wd=$encoded"
-            searchEngine.contains("so.com", ignoreCase = true) ->
-                "https://sug.so.360.cn/suggest?word=$encoded"
-            searchEngine.contains("sogou", ignoreCase = true) ->
-                "https://sugg.sogou.com/sugg/associated/Query?key=$encoded"
-            else -> "https://suggestqueries.google.com/complete/search?client=firefox&q=$encoded"
-        }
         runCatching {
             val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 2_500
@@ -2103,55 +3386,93 @@ private suspend fun fetchSearchSuggestions(searchEngine: String, query: String):
 }
 
 private fun parseSuggestionResponse(body: String): List<String> {
-    val start = body.indexOf('[')
-    val end = body.lastIndexOf(']')
-    val json = if (start >= 0 && end > start) body.substring(start, end + 1) else body
-    runCatching {
-        val root = JSONArray(json)
-        val nested = root.optJSONArray(1)
-        if (nested != null) {
-            return buildList {
-                for (index in 0 until nested.length()) {
-                    nested.optString(index).takeIf(String::isNotBlank)?.let(::add)
+    val trimmed = body.trim()
+    val start = trimmed.indexOfAny(charArrayOf('[', '{'))
+    val end = maxOf(trimmed.lastIndexOf(']'), trimmed.lastIndexOf('}'))
+    val json = if (start >= 0 && end > start) trimmed.substring(start, end + 1) else trimmed
+
+    // 1. Try JSON Array (OpenSearch format or plain string array)
+    if (json.startsWith('[')) {
+        runCatching {
+            val root = JSONArray(json)
+            val nested = root.optJSONArray(1)
+            if (nested != null) {
+                return buildList {
+                    for (index in 0 until nested.length()) {
+                        nested.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                    }
+                }
+            }
+            val objectSuggestions = buildList {
+                for (index in 0 until root.length()) {
+                    val obj = root.optJSONObject(index)
+                    if (obj != null) {
+                        val phrase = obj.optString("phrase").ifBlank {
+                            obj.optString("word").ifBlank {
+                                obj.optString("query").ifBlank {
+                                    obj.optString("text")
+                                }
+                            }
+                        }
+                        if (phrase.isNotBlank()) add(phrase)
+                    } else {
+                        root.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                    }
+                }
+            }
+            if (objectSuggestions.isNotEmpty()) return objectSuggestions
+        }
+    } else if (json.startsWith('{')) {
+        // 2. Try JSON Object with "result", "data", "s", "g", "suggestions", "items"
+        runCatching {
+            val obj = JSONObject(json)
+            for (key in listOf("result", "data", "s", "g", "suggestions", "items")) {
+                val array = obj.optJSONArray(key)
+                if (array != null) {
+                    val list = buildList {
+                        for (i in 0 until array.length()) {
+                            val item = array.optJSONObject(i)
+                            if (item != null) {
+                                val text = item.optString("phrase").ifBlank {
+                                    item.optString("word").ifBlank {
+                                        item.optString("query").ifBlank {
+                                            item.optString("text").ifBlank {
+                                                item.optString("q")
+                                            }
+                                        }
+                                    }
+                                }
+                                if (text.isNotBlank()) add(text)
+                            } else {
+                                array.optString(i).takeIf(String::isNotBlank)?.let(::add)
+                            }
+                        }
+                    }
+                    if (list.isNotEmpty()) return list
                 }
             }
         }
-        val objectSuggestions = buildList {
-            for (index in 0 until root.length()) {
-                root.optJSONObject(index)?.optString("phrase")?.takeIf(String::isNotBlank)?.let(::add)
-            }
-        }
-        if (objectSuggestions.isNotEmpty()) return objectSuggestions
     }
+
     return Regex("[\\\"']([^\\\"']{2,})[\\\"']")
         .findAll(body)
         .map { it.groupValues[1] }
-        .filterNot { it == "q" || it == "p" }
+        .filterNot { it == "q" || it == "p" || it == "type" || it == "query" || it == "status" }
         .toList()
 }
 
 @Composable
 private fun SearchEngineSwitchButton(
-    currentEngine: String,
+    currentEngine: SearchEngine,
+    allEngines: List<SearchEngine> = SearchEngine.PRESET_ENGINES,
     isInputting: Boolean,
-    onEngineChanged: (String) -> Unit
+    onEngineChanged: (SearchEngine) -> Unit
 ) {
     var userExpanded by remember { mutableStateOf(false) }
     val showPopup = userExpanded
     val popupAnimState = remember { MutableTransitionState(false) }
     popupAnimState.targetState = showPopup
     val scope = rememberCoroutineScope()
-
-    val engines = listOf(
-        UserPreferences.ENGINE_BING to "Bing",
-        UserPreferences.ENGINE_GOOGLE to "Google",
-        UserPreferences.ENGINE_BAIDU to "百度",
-        UserPreferences.ENGINE_DUCKDUCKGO to "DuckDuckGo",
-        UserPreferences.ENGINE_YAHOO to "Yahoo",
-        UserPreferences.ENGINE_YANDEX to "Yandex",
-        UserPreferences.ENGINE_360 to "360",
-        UserPreferences.ENGINE_SOGOU to "Sogou"
-    )
 
     Box {
         IconButton(
@@ -2177,16 +3498,24 @@ private fun SearchEngineSwitchButton(
                     exit = fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.8f, animationSpec = tween(150))
                 ) {
                     Card(
-                        modifier = Modifier.padding(top = 40.dp, end = 16.dp).width(160.dp)
+                        modifier = Modifier
+                            .padding(top = 40.dp, end = 16.dp)
+                            .width(160.dp)
                     ) {
-                        Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                            engines.forEach { (engineUrl, engineName) ->
-                                val isSelected = currentEngine == engineUrl
+                        Column(
+                            modifier = Modifier
+                                .padding(vertical = 8.dp)
+                                .heightIn(max = 320.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            allEngines.forEach { engine ->
+                                val isSelected = currentEngine.id == engine.id ||
+                                    currentEngine.searchUrl.equals(engine.searchUrl, ignoreCase = true)
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            onEngineChanged(engineUrl)
+                                            onEngineChanged(engine)
                                             scope.launch {
                                                 delay(150)
                                                 userExpanded = false
@@ -2197,7 +3526,7 @@ private fun SearchEngineSwitchButton(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        text = engineName,
+                                        text = engine.name,
                                         color = if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
                                         fontSize = 16.sp
                                     )

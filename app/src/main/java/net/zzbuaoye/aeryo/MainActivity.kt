@@ -35,6 +35,33 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
 class MainActivity : FragmentActivity() {
+    private var isPipMode by mutableStateOf(false)
+    private var isVideoFullscreenActive by mutableStateOf(false)
+    private var isPipAutoEnabled by mutableStateOf(true)
+
+    fun enterPip() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching {
+                val params = android.app.PictureInPictureParams.Builder()
+                    .setAspectRatio(android.util.Rational(16, 9))
+                    .build()
+                enterPictureInPictureMode(params)
+            }
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (isVideoFullscreenActive && isPipAutoEnabled) {
+            enterPip()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isPipMode = isInPictureInPictureMode
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         resetLegacyApplicationNightMode()
         val preferences = UserPreferences(applicationContext)
@@ -49,6 +76,11 @@ class MainActivity : FragmentActivity() {
             val themeMode by preferences.themeMode.collectAsState(initial = startupTheme.themeMode)
             val themePalette by preferences.themePalette.collectAsState(initial = startupTheme.themePalette)
             val themeKeyColor by preferences.themeKeyColor.collectAsState(initial = startupTheme.themeKeyColor)
+            val pipAutoPref by preferences.videoPipAutoEnabled.collectAsState(initial = true)
+
+            LaunchedEffect(pipAutoPref) {
+                isPipAutoEnabled = pipAutoPref
+            }
 
             LaunchedEffect(themeMode) {
                 val darkTheme = StartupTheme(
@@ -81,7 +113,11 @@ class MainActivity : FragmentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MiuixTheme.colorScheme.background
                     ) {
-                        AeryoMainScreen()
+                        AeryoMainScreen(
+                            isPipMode = isPipMode,
+                            onEnterPip = ::enterPip,
+                            onFullscreenActiveChanged = { isVideoFullscreenActive = it }
+                        )
                     }
                 }
             }

@@ -3,6 +3,9 @@ package net.zzbuaoye.aeryo.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -94,9 +98,12 @@ import top.yukonga.miuix.kmp.icon.extended.Theme
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.pressable
+import compose.icons.tablericons.Check
 import net.zzbuaoye.aeryo.settings.data.UserPreferences
+import net.zzbuaoye.aeryo.settings.data.SearchEngine
 
 private const val MenuColumnCount = 4
 private const val MenuPageSize = 8
@@ -110,25 +117,24 @@ private fun menuSlot(index: Int): String {
     return "$page-$row-$position"
 }
 
-
+data class MenuActionItem(
+    val id: String,
+    val title: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit,
+    val active: Boolean? = null,
+    val badgeDot: Boolean = false,
+    val badgeCount: Int = 0
+)
 
 data class MenuItem(
     val id: String,
     val title: String,
     val icon: ImageVector,
     val onClick: () -> Unit,
-    val active: Boolean? = null
-)
-
-data class SearchEngineOption(val name: String, val url: String)
-
-private val SearchEngineOptions = listOf(
-    SearchEngineOption("Bing", UserPreferences.ENGINE_BING),
-    SearchEngineOption("Google", UserPreferences.ENGINE_GOOGLE),
-    SearchEngineOption("Baidu", UserPreferences.ENGINE_BAIDU),
-    SearchEngineOption("DuckDuckGo", UserPreferences.ENGINE_DUCKDUCKGO),
-    SearchEngineOption("360", UserPreferences.ENGINE_360),
-    SearchEngineOption("Sogou", UserPreferences.ENGINE_SOGOU)
+    val active: Boolean? = null,
+    val badgeDot: Boolean = false,
+    val badgeCount: Int = 0
 )
 
 @Composable
@@ -143,8 +149,14 @@ fun AeryoMenuBottomSheet(
     onAdBlockChanged: (Boolean) -> Unit,
     onNightModeChanged: (Boolean) -> Unit,
     currentSearchEngine: String,
+    allSearchEngines: List<SearchEngine> = SearchEngine.PRESET_ENGINES,
     currentSearchQuery: String,
     onSearchEngineSelected: (String) -> Unit,
+    currentVideoSpeed: Float = 1.0f,
+    onVideoSpeedChange: (Float) -> Unit = {},
+    sniffedMediaCount: Int = 0,
+    mediaSnifferBadgeMode: String = UserPreferences.MEDIA_SNIFFER_BADGE_DOT,
+    onShowMediaSniffer: () -> Unit = {},
     menuOrder: List<String>,
     onMenuOrderChanged: (List<String>) -> Unit,
     onDismiss: () -> Unit,
@@ -158,6 +170,7 @@ fun AeryoMenuBottomSheet(
     onSharePage: () -> Unit = {},
     onRefresh: () -> Unit,
     onFindInPage: () -> Unit,
+    onEnterReaderMode: () -> Unit = {},
 ) {
     var editing by remember(show) { mutableStateOf(false) }
     var selectedItemId by remember(show) { mutableStateOf<String?>(null) }
@@ -167,6 +180,7 @@ fun AeryoMenuBottomSheet(
     var localIsAdBlockEnabled by remember(show) { mutableStateOf(isAdBlockEnabled) }
     var localIsNightModeEnabled by remember(show) { mutableStateOf(isNightModeEnabled) }
     var showingSearchEnginePicker by remember(show) { mutableStateOf(false) }
+    var showingVideoSpeedPicker by remember(show) { mutableStateOf(false) }
 
     LaunchedEffect(menuOrder, editing) {
         if (!editing) {
@@ -191,12 +205,15 @@ fun AeryoMenuBottomSheet(
         show = show,
         title = when {
             showingSearchEnginePicker -> "更换搜索引擎"
+            showingVideoSpeedPicker -> "网页视频倍速"
             editing -> "调整菜单"
             else -> "浏览器菜单"
         },
         onDismissRequest = {
             if (showingSearchEnginePicker) {
                 showingSearchEnginePicker = false
+            } else if (showingVideoSpeedPicker) {
+                showingVideoSpeedPicker = false
             } else if (editing) {
                 onMenuOrderChanged(localOrder)
                 onDismiss()
@@ -208,12 +225,23 @@ fun AeryoMenuBottomSheet(
         if (showingSearchEnginePicker) {
             SearchEnginePicker(
                 currentSearchEngine = currentSearchEngine,
+                allSearchEngines = allSearchEngines,
                 currentSearchQuery = currentSearchQuery,
                 onSearchEngineSelected = { engine ->
                     onSearchEngineSelected(engine)
                     showingSearchEnginePicker = false
                 },
                 onBack = { showingSearchEnginePicker = false }
+            )
+        } else if (showingVideoSpeedPicker) {
+            VideoSpeedPicker(
+                currentSpeed = currentVideoSpeed,
+                onSpeedSelected = { speed ->
+                    onVideoSpeedChange(speed)
+                    showingVideoSpeedPicker = false
+                    onDismiss()
+                },
+                onBack = { showingVideoSpeedPicker = false }
             )
         } else {
             val defaultItems = listOfNotNull(
@@ -285,6 +313,32 @@ fun AeryoMenuBottomSheet(
                         onNightModeChanged(localIsNightModeEnabled)
                     },
                     localIsNightModeEnabled
+                ),
+                MenuItem(
+                    "video_speed",
+                    "视频倍速",
+                    MiuixIcons.ScreenMirroring,
+                    { showingVideoSpeedPicker = true }
+                ),
+                MenuItem(
+                    id = "media_sniffer",
+                    title = "媒体嗅探",
+                    icon = TablerIcons.Download,
+                    onClick = {
+                        onShowMediaSniffer()
+                        onDismiss()
+                    },
+                    badgeDot = sniffedMediaCount > 0 && mediaSnifferBadgeMode == UserPreferences.MEDIA_SNIFFER_BADGE_DOT,
+                    badgeCount = if (mediaSnifferBadgeMode == UserPreferences.MEDIA_SNIFFER_BADGE_COUNT) sniffedMediaCount else 0
+                ),
+                MenuItem(
+                    "reader_mode",
+                    "阅读模式",
+                    TablerIcons.Bookmark,
+                    {
+                        onEnterReaderMode()
+                        onDismiss()
+                    }
                 ),
                 MenuItem("settings", "设置", TablerIcons.Settings, onNavigateToSettings),
             )
@@ -563,38 +617,91 @@ fun AeryoMenuBottomSheet(
 @Composable
 private fun SearchEnginePicker(
     currentSearchEngine: String,
+    allSearchEngines: List<SearchEngine> = SearchEngine.PRESET_ENGINES,
     currentSearchQuery: String,
     onSearchEngineSelected: (String) -> Unit,
     onBack: () -> Unit
 ) {
-    val selectedIndex = SearchEngineOptions
-        .indexOfFirst { it.url == currentSearchEngine }
-        .coerceAtLeast(0)
+    val selectedEngine = allSearchEngines.find {
+        it.searchUrl.equals(currentSearchEngine, ignoreCase = true) ||
+            it.searchUrl.replace("%s", "").equals(currentSearchEngine.replace("%s", ""), ignoreCase = true)
+    } ?: allSearchEngines.firstOrNull()
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
-        OverlayDropdownPreference(
-            title = "搜索引擎",
-            summary = currentSearchQuery.ifBlank { "当前没有搜索内容" },
-            items = SearchEngineOptions.map(SearchEngineOption::name),
-            selectedIndex = selectedIndex,
-            onSelectedIndexChange = { index ->
-                if (index != selectedIndex && currentSearchQuery.isNotBlank()) {
-                    onSearchEngineSelected(SearchEngineOptions[index].url)
-                }
-            }
-        )
-        if (currentSearchQuery.isBlank()) {
+        if (currentSearchQuery.isNotBlank()) {
             Text(
-                text = "因为你在主页，或者当前页面没有进行任何搜索，所以无法更换搜索引擎。",
+                text = "搜索关键词: $currentSearchQuery",
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 8.dp)
+                fontSize = 13.sp,
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
+
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 280.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                allSearchEngines.forEach { engine ->
+                    val isSelected = engine.id == selectedEngine?.id ||
+                        engine.searchUrl.equals(currentSearchEngine, ignoreCase = true)
+                    BasicComponent(
+                        title = engine.name,
+                        summary = if (engine.isPreset) "内置引擎" else "自定义引擎",
+                        onClick = {
+                            onSearchEngineSelected(engine.searchUrl)
+                        },
+                        endActions = {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = TablerIcons.Check,
+                                    contentDescription = "已选择",
+                                    tint = MiuixTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoSpeedPicker(
+    currentSpeed: Float,
+    onSpeedSelected: (Float) -> Unit,
+    onBack: () -> Unit
+) {
+    val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
+    val speedLabels = speedOptions.map { "${it}x" }
+    val selectedIndex = speedOptions.indexOfFirst { kotlin.math.abs(it - currentSpeed) < 0.01f }.coerceAtLeast(2)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 8.dp, bottom = 12.dp)
+    ) {
+        OverlayDropdownPreference(
+            title = "播放速度",
+            summary = "调整当前网页所有播放中的视频速度",
+            items = speedLabels,
+            selectedIndex = selectedIndex,
+            onSelectedIndexChange = { index ->
+                onSpeedSelected(speedOptions[index])
+            }
+        )
     }
 }
 
@@ -698,12 +805,40 @@ private fun MenuCommand(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = item.icon,
-                contentDescription = item.title,
-                modifier = Modifier.size(23.dp),
-                tint = contentColor
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.title,
+                    modifier = Modifier.size(23.dp),
+                    tint = contentColor
+                )
+                if (item.badgeDot) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 3.dp, y = (-2).dp)
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(MiuixTheme.colorScheme.primary)
+                    )
+                } else if (item.badgeCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 8.dp, y = (-4).dp)
+                            .clip(CircleShape)
+                            .background(MiuixTheme.colorScheme.primary)
+                            .padding(horizontal = 4.dp, vertical = 0.5.dp)
+                    ) {
+                        Text(
+                            text = if (item.badgeCount > 99) "99+" else "${item.badgeCount}",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(5.dp))
             Text(
                 text = item.title,
