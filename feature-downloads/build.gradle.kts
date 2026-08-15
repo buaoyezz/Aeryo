@@ -46,6 +46,7 @@ dependencies {
     // MIUIX UI Library
     implementation(libs.miuix.ui)
     implementation(libs.miuix.icons)
+    implementation(libs.compose.icons.tabler)
 
     implementation(libs.kotlinx.coroutines.android)
 }

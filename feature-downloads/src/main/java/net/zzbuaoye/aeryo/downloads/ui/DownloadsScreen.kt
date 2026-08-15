@@ -1,9 +1,13 @@
 package net.zzbuaoye.aeryo.downloads.ui
 
 import android.app.DownloadManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,6 +15,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,18 +30,38 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import compose.icons.TablerIcons
+import compose.icons.tablericons.Archive
+import compose.icons.tablericons.BrandAndroid
+import compose.icons.tablericons.Code
+import compose.icons.tablericons.Copy
+import compose.icons.tablericons.File
+import compose.icons.tablericons.FileText
+import compose.icons.tablericons.ExternalLink
+import compose.icons.tablericons.Movie
+import compose.icons.tablericons.Music
+import compose.icons.tablericons.Photo
+import compose.icons.tablericons.PlayerPause
+import compose.icons.tablericons.PlayerPlay
+import compose.icons.tablericons.Share
 import kotlin.math.pow
 import net.zzbuaoye.aeryo.downloads.model.DownloadBackend
 import net.zzbuaoye.aeryo.downloads.model.DownloadItem
@@ -56,13 +81,13 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Download
-import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -77,6 +102,8 @@ fun DownloadsScreen(
     onResumeDownload: (DownloadItem) -> Unit,
     onBack: () -> Unit
 ) {
+    var actionMenuItem by remember { mutableStateOf<DownloadItem?>(null) }
+    var actionMenuVisible by remember { mutableStateOf(false) }
     val activeDownloads = downloads.filter(DownloadItem::isActiveDownload)
     val pausedDownloads = downloads.filter { it.status == DownloadManager.STATUS_PAUSED }
     val finishedDownloads = downloads.filter {
@@ -158,6 +185,10 @@ fun DownloadsScreen(
                                 onDelete = { onDeleteDownload(item) },
                                 onPause = { onPauseDownload(item) },
                                 onResume = { onResumeDownload(item) },
+                                onShowMenu = {
+                                    actionMenuItem = item
+                                    actionMenuVisible = true
+                                },
                                 modifier = Modifier.animateItem()
                             )
                         }
@@ -174,6 +205,10 @@ fun DownloadsScreen(
                                 onDelete = { onDeleteDownload(item) },
                                 onPause = { onPauseDownload(item) },
                                 onResume = { onResumeDownload(item) },
+                                onShowMenu = {
+                                    actionMenuItem = item
+                                    actionMenuVisible = true
+                                },
                                 modifier = Modifier.animateItem()
                             )
                         }
@@ -190,6 +225,10 @@ fun DownloadsScreen(
                                 onDelete = { onDeleteDownload(item) },
                                 onPause = { onPauseDownload(item) },
                                 onResume = { onResumeDownload(item) },
+                                onShowMenu = {
+                                    actionMenuItem = item
+                                    actionMenuVisible = true
+                                },
                                 modifier = Modifier.animateItem()
                             )
                         }
@@ -197,6 +236,91 @@ fun DownloadsScreen(
                 }
             }
         }
+    }
+
+    DownloadTaskActionSheet(
+        show = actionMenuVisible,
+        item = actionMenuItem,
+        onDismissRequest = { actionMenuVisible = false },
+        onDismissFinished = { actionMenuItem = null },
+        onOpen = {
+            actionMenuItem?.let(onOpenDownload)
+            actionMenuVisible = false
+        },
+        onPause = {
+            actionMenuItem?.let(onPauseDownload)
+            actionMenuVisible = false
+        },
+        onResume = {
+            actionMenuItem?.let(onResumeDownload)
+            actionMenuVisible = false
+        },
+        onDelete = {
+            actionMenuItem?.let(onDeleteDownload)
+            actionMenuVisible = false
+        }
+    )
+}
+
+private data class FileTypeVisual(
+    val icon: ImageVector,
+    val iconColor: Color,
+    val containerColor: Color,
+    val typeName: String
+)
+
+private fun getFileTypeVisual(fileName: String, mimeType: String?): FileTypeVisual {
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    val mime = mimeType?.lowercase().orEmpty()
+    return when {
+        ext == "apk" || mime.contains("vnd.android.package-archive") -> FileTypeVisual(
+            icon = TablerIcons.BrandAndroid,
+            iconColor = Color(0xFF10B981),
+            containerColor = Color(0xFF10B981).copy(alpha = 0.12f),
+            typeName = "APK"
+        )
+        ext in listOf("mp4", "mkv", "mov", "avi", "flv", "webm", "m4s", "m3u8", "ts", "3gp") || mime.startsWith("video/") -> FileTypeVisual(
+            icon = TablerIcons.Movie,
+            iconColor = Color(0xFF8B5CF6),
+            containerColor = Color(0xFF8B5CF6).copy(alpha = 0.12f),
+            typeName = "视频"
+        )
+        ext in listOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "wma", "opus") || mime.startsWith("audio/") -> FileTypeVisual(
+            icon = TablerIcons.Music,
+            iconColor = Color(0xFFF59E0B),
+            containerColor = Color(0xFFF59E0B).copy(alpha = 0.12f),
+            typeName = "音频"
+        )
+        ext in listOf("jpg", "jpeg", "png", "webp", "gif", "svg", "bmp", "ico") || mime.startsWith("image/") -> FileTypeVisual(
+            icon = TablerIcons.Photo,
+            iconColor = Color(0xFF3B82F6),
+            containerColor = Color(0xFF3B82F6).copy(alpha = 0.12f),
+            typeName = "图片"
+        )
+        ext in listOf("zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso", "7zip") || mime.contains("zip") || mime.contains("compressed") -> FileTypeVisual(
+            icon = TablerIcons.Archive,
+            iconColor = Color(0xFFD97706),
+            containerColor = Color(0xFFD97706).copy(alpha = 0.12f),
+            typeName = "压缩包"
+        )
+        ext in listOf("pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "epub", "md", "csv") || mime.contains("pdf") || mime.contains("document") -> FileTypeVisual(
+            icon = TablerIcons.FileText,
+            iconColor = Color(0xFFEF4444),
+            containerColor = Color(0xFFEF4444).copy(alpha = 0.12f),
+            typeName = "文档"
+        )
+        ext in listOf("kt", "java", "py", "c", "cpp", "h", "js", "ts", "html", "css", "json", "xml", "sh") -> FileTypeVisual(
+            icon = TablerIcons.Code,
+            iconColor = Color(0xFF06B6D4),
+            containerColor = Color(0xFF06B6D4).copy(alpha = 0.12f),
+            typeName = "代码"
+        )
+        else -> FileTypeVisual(
+            icon = TablerIcons.File,
+            iconColor = Color(0xFF64748B),
+            containerColor = Color(0xFF64748B).copy(alpha = 0.12f),
+            typeName = "文件"
+        )
     }
 }
 
@@ -214,13 +338,13 @@ private fun DownloadSummaryCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(MiuixTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
@@ -228,14 +352,14 @@ private fun DownloadSummaryCard(
                     imageVector = MiuixIcons.Download,
                     contentDescription = null,
                     tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.size(25.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
-            Column(modifier = Modifier.padding(start = 14.dp).weight(1f)) {
+            Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
                 Text(
                     text = if (activeCount > 0) "下载正在进行" else "下载任务",
                     color = MiuixTheme.colorScheme.onSurface,
-                    fontSize = 17.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
@@ -245,16 +369,18 @@ private fun DownloadSummaryCard(
                         else -> "共 $totalCount 个任务"
                     },
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 3.dp)
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 1.dp)
                 )
             }
-            Text(
-                text = activeCount.toString(),
-                color = MiuixTheme.colorScheme.primary,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold
-            )
+            if (activeCount > 0) {
+                Text(
+                    text = "$activeCount 个进行中",
+                    color = MiuixTheme.colorScheme.primary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -271,6 +397,7 @@ private fun DownloadCard(
     onDelete: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
+    onShowMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val complete = item.status == DownloadManager.STATUS_SUCCESSFUL
@@ -278,73 +405,87 @@ private fun DownloadCard(
     val paused = item.status == DownloadManager.STATUS_PAUSED
     val failed = item.status == DownloadManager.STATUS_FAILED
     val progress = item.progress()
-    val accent by animateColorAsState(
-        targetValue = when {
-            complete -> MiuixTheme.colorScheme.primary
-            failed -> MiuixTheme.colorScheme.error
-            paused -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-            else -> MiuixTheme.colorScheme.primary
-        },
-        animationSpec = folmeSpring(damping = 0.9f, response = 0.38f),
-        label = "download-accent"
-    )
-    val statusBackground by animateColorAsState(
-        targetValue = when {
-            complete -> MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
-            failed -> MiuixTheme.colorScheme.error.copy(alpha = 0.12f)
-            paused -> MiuixTheme.colorScheme.surfaceContainerHighest
-            else -> MiuixTheme.colorScheme.primaryContainer
-        },
-        animationSpec = folmeSpring(damping = 0.9f, response = 0.38f),
-        label = "download-status-background"
-    )
+    val visual = getFileTypeVisual(item.fileName, item.mimeType)
 
     Card(
         modifier = modifier.fillMaxWidth(),
         insideMargin = PaddingValues(0.dp),
         colors = CardDefaults.defaultColors(color = aeryoCardColor()),
         pressFeedbackType = PressFeedbackType.Sink,
-        onClick = { if (complete) onOpen() }
+        onClick = { if (complete) onOpen() },
+        onLongPress = onShowMenu
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp)
+                .padding(horizontal = 13.dp, vertical = 10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(statusBackground),
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(visual.containerColor),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (complete) MiuixIcons.Ok else MiuixIcons.Download,
+                        imageVector = visual.icon,
                         contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(22.dp)
+                        tint = visual.iconColor,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-                Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .padding(start = 11.dp)
+                        .weight(1f)
+                ) {
                     Text(
                         text = item.fileName,
                         color = MiuixTheme.colorScheme.onSurface,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = downloadStatusText(item),
-                        color = accent,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 2.dp)
+                        text = "${visual.typeName} · ${downloadStatusText(item)}",
+                        color = if (failed) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 1.dp)
                     )
                 }
-                IconButton(onClick = onDelete) {
+                when {
+                    complete -> DownloadActionButton(
+                        icon = TablerIcons.ExternalLink,
+                        contentDescription = "打开文件",
+                        onClick = onOpen
+                    )
+                    item.backend == DownloadBackend.BUILT_IN && active -> DownloadActionButton(
+                        icon = TablerIcons.PlayerPause,
+                        contentDescription = "暂停下载",
+                        onClick = onPause
+                    )
+                    item.backend == DownloadBackend.BUILT_IN && (paused || failed) -> DownloadActionButton(
+                        icon = TablerIcons.PlayerPlay,
+                        contentDescription = "继续下载",
+                        onClick = onResume
+                    )
+                }
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(30.dp)
+                ) {
                     Icon(
                         MiuixIcons.Delete,
-                        contentDescription = "删除下载",
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantActions
+                        contentDescription = "删除任务",
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -354,43 +495,227 @@ private fun DownloadCard(
                     progress = progress,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 14.dp)
+                        .height(3.dp)
+                        .padding(top = 8.dp)
+                        .clip(RoundedCornerShape(1.5.dp))
                 )
             }
 
+            Text(
+                text = progressDescription(item),
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = if (progress == null) 6.dp else 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun DownloadTaskActionSheet(
+    show: Boolean,
+    item: DownloadItem?,
+    onDismissRequest: () -> Unit,
+    onDismissFinished: () -> Unit,
+    onOpen: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onDelete: () -> Unit
+) {
+    if (item == null) return
+    val context = LocalContext.current
+    val complete = item.status == DownloadManager.STATUS_SUCCESSFUL
+    val active = item.isActiveDownload()
+    val canResume = item.backend == DownloadBackend.BUILT_IN &&
+        (item.status == DownloadManager.STATUS_PAUSED || item.status == DownloadManager.STATUS_FAILED)
+
+    OverlayBottomSheet(
+        show = show,
+        title = null,
+        onDismissRequest = onDismissRequest,
+        onDismissFinished = onDismissFinished
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = if (progress == null) 12.dp else 8.dp),
+                    .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                val visual = getFileTypeVisual(item.fileName, item.mimeType)
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(visual.containerColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = visual.icon,
+                        contentDescription = null,
+                        tint = visual.iconColor,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .weight(1f)
+                ) {
                     Text(
-                        text = progressDescription(item),
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        fontSize = 13.sp
+                        text = item.fileName,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = item.backend.displayName(),
+                        text = item.url,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
-                when {
-                    complete -> TextButton(text = "打开", onClick = onOpen)
-                    item.backend == DownloadBackend.BUILT_IN && active ->
-                        TextButton(text = "暂停", onClick = onPause)
-                    item.backend == DownloadBackend.BUILT_IN && (paused || failed) ->
-                        TextButton(text = "继续", onClick = onResume)
-                    else -> Text(
-                        text = "系统不支持暂停",
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        fontSize = 12.sp
+                IconButton(onClick = onDismissRequest) {
+                    Icon(
+                        imageVector = MiuixIcons.Close,
+                        contentDescription = "关闭",
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                 }
             }
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                if (complete) {
+                    DownloadMenuItem(
+                        icon = TablerIcons.ExternalLink,
+                        title = "打开文件",
+                        onClick = onOpen
+                    )
+                } else if (item.backend == DownloadBackend.BUILT_IN && active) {
+                    DownloadMenuItem(
+                        icon = TablerIcons.PlayerPause,
+                        title = "暂停下载",
+                        onClick = onPause
+                    )
+                } else if (canResume) {
+                    DownloadMenuItem(
+                        icon = TablerIcons.PlayerPlay,
+                        title = "继续下载",
+                        onClick = onResume
+                    )
+                }
+                DownloadMenuItem(
+                    icon = TablerIcons.Copy,
+                    title = "复制下载链接",
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Download URL", item.url))
+                        Toast.makeText(context, "已复制下载链接", Toast.LENGTH_SHORT).show()
+                        onDismissRequest()
+                    }
+                )
+                DownloadMenuItem(
+                    icon = TablerIcons.Share,
+                    title = "分享下载链接",
+                    onClick = {
+                        runCatching {
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, item.fileName)
+                                putExtra(Intent.EXTRA_TEXT, item.url)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "分享下载链接"))
+                        }.onFailure {
+                            Toast.makeText(context, "没有可用的分享应用", Toast.LENGTH_SHORT).show()
+                        }
+                        onDismissRequest()
+                    }
+                )
+                DownloadMenuItem(
+                    icon = TablerIcons.FileText,
+                    title = "复制文件名",
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("File name", item.fileName))
+                        Toast.makeText(context, "已复制文件名", Toast.LENGTH_SHORT).show()
+                        onDismissRequest()
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                DownloadMenuItem(
+                    icon = MiuixIcons.Delete,
+                    title = "删除任务与文件",
+                    tint = MiuixTheme.colorScheme.error,
+                    onClick = onDelete
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
         }
+    }
+}
+
+@Composable
+private fun DownloadMenuItem(
+    icon: ImageVector,
+    title: String,
+    tint: Color = MiuixTheme.colorScheme.onSurface,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = tint,
+            modifier = Modifier.size(20.dp)
+        )
+        Text(
+            text = title,
+            color = tint,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(start = 14.dp)
+        )
+    }
+}
+
+@Composable
+private fun DownloadActionButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(30.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+            modifier = Modifier.size(17.dp)
+        )
     }
 }
 
@@ -462,11 +787,6 @@ private fun progressDescription(item: DownloadItem): String {
         return "$amount · 剩余约 ${formatDuration(remainingSeconds)}"
     }
     return amount
-}
-
-private fun DownloadBackend.displayName(): String = when (this) {
-    DownloadBackend.SYSTEM -> "系统下载"
-    DownloadBackend.BUILT_IN -> "内置下载"
 }
 
 internal fun formatBytes(bytes: Long): String {

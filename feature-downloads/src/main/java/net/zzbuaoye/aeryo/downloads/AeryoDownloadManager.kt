@@ -1,11 +1,14 @@
 package net.zzbuaoye.aeryo.downloads
 
 import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.webkit.CookieManager
 import android.webkit.URLUtil
 import android.widget.Toast
@@ -14,8 +17,12 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLDecoder
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
@@ -32,10 +39,13 @@ import net.zzbuaoye.aeryo.downloads.model.DownloadRequest
 import org.json.JSONArray
 import org.json.JSONObject
 
-class AeryoDownloadManager(context: Context) {
+class AeryoDownloadManager(
+    context: Context,
+    private val downloadDirectoryProvider: () -> String = { "" }
+) {
     private val appContext = context.applicationContext
     private val systemDownloadManager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    private val internalDownloads = BuiltInDownloadEngine(appContext)
+    private val internalDownloads = BuiltInDownloadEngine(appContext, downloadDirectoryProvider)
     private val systemSamples = mutableMapOf<Long, TransferSample>()
 
     fun createRequest(
@@ -48,7 +58,7 @@ class AeryoDownloadManager(context: Context) {
     ): DownloadRequest {
         return DownloadRequest(
             url = url,
-            fileName = URLUtil.guessFileName(url, contentDisposition, mimeType),
+            fileName = resolveDownloadFileName(url, contentDisposition, mimeType),
             userAgent = userAgent,
             contentDisposition = contentDisposition,
             mimeType = mimeType,
@@ -195,7 +205,7 @@ class AeryoDownloadManager(context: Context) {
             toast("下载文件不存在")
             return
         }
-        openUri(uri, systemDownloadManager.getMimeTypeForDownloadedFile(item.id) ?: item.mimeType)
+        openUri(uri, systemDownloadManager.getMimeTypeForDownloadedFile(item.id) ?: item.mimeType, item.fileName)
     }
 
     private fun openBuiltInDownload(item: DownloadItem) {
@@ -207,22 +217,41 @@ class AeryoDownloadManager(context: Context) {
             toast("下载文件不存在")
             return
         }
+        val storedUri = Uri.parse(path)
+        if (storedUri.scheme == "content") {
+            openUri(storedUri, item.mimeType, item.fileName)
+            return
+        }
+
         val file = File(path)
         if (!file.exists()) {
             toast("下载文件不存在")
             return
         }
-        val uri = FileProvider.getUriForFile(
-            appContext,
-            "${appContext.packageName}.fileprovider",
-            file
-        )
-        openUri(uri, item.mimeType)
+        if (!file.canRead()) {
+            toast("旧下载文件已失去访问权限，请重新下载")
+            return
+        }
+        val uri = try {
+            FileProvider.getUriForFile(
+                appContext,
+                "${appContext.packageName}.fileprovider",
+                file
+            )
+        } catch (_: IllegalArgumentException) {
+            toast("无法访问下载文件，请重新选择下载目录")
+            return
+        }
+        openUri(uri, item.mimeType, item.fileName)
     }
 
-    private fun openUri(uri: Uri, mimeType: String?) {
+    private fun openUri(uri: Uri, mimeType: String?, fileName: String? = null) {
+        val resolvedMimeType = mimeType?.takeIf(String::isNotBlank) ?: "*/*"
+        val isApk = resolvedMimeType.equals(APK_MIME_TYPE, ignoreCase = true) ||
+            fileName?.endsWith(".apk", ignoreCase = true) == true ||
+            uri.lastPathSegment?.endsWith(".apk", ignoreCase = true) == true
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mimeType?.takeIf(String::isNotBlank) ?: "*/*")
+            setDataAndType(uri, if (isApk) APK_MIME_TYPE else resolvedMimeType)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         try {
@@ -237,9 +266,16 @@ class AeryoDownloadManager(context: Context) {
     }
 
     private data class TransferSample(val bytes: Long, val timestampMs: Long)
+
+    private companion object {
+        const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+    }
 }
 
-private class BuiltInDownloadEngine(private val context: Context) {
+private class BuiltInDownloadEngine(
+    private val context: Context,
+    private val downloadDirectoryProvider: () -> String = { "" }
+) {
     private val preferences = context.getSharedPreferences("aeryo_internal_downloads", Context.MODE_PRIVATE)
     private val tasks = ConcurrentHashMap<Long, InternalTask>()
     private val jobs = ConcurrentHashMap<Long, Job>()
@@ -251,16 +287,16 @@ private class BuiltInDownloadEngine(private val context: Context) {
     }
 
     fun enqueue(request: DownloadRequest): Long {
-        val targetFile = nextAvailableFile(request.fileName)
+        val target = createDownloadTarget(request.fileName, request.mimeType)
         val task = InternalTask(
             id = nextTaskId(),
-            fileName = targetFile.name,
+            fileName = target.fileName,
             url = request.url,
             mimeType = request.mimeType.orEmpty(),
             totalBytes = request.contentLength.coerceAtLeast(0L),
             downloadedBytes = 0L,
             status = DownloadManager.STATUS_PENDING,
-            localPath = targetFile.absolutePath,
+            localPath = target.location,
             createdAt = System.currentTimeMillis(),
             userAgent = request.userAgent,
             referer = request.referer
@@ -297,7 +333,7 @@ private class BuiltInDownloadEngine(private val context: Context) {
     fun remove(id: Long) {
         jobs.remove(id)?.cancel()
         val task = tasks.remove(id) ?: return
-        File(task.localPath).takeIf(File::exists)?.delete()
+        deleteTarget(task.localPath)
         persist()
     }
 
@@ -312,10 +348,10 @@ private class BuiltInDownloadEngine(private val context: Context) {
         var connection: HttpURLConnection? = null
         try {
             val initialTask = tasks[id] ?: return
-            val targetFile = File(initialTask.localPath)
-            targetFile.parentFile?.mkdirs()
+            var targetLocation = initialTask.localPath
+            targetFileOrNull(targetLocation)?.parentFile?.mkdirs()
 
-            var existingBytes = targetFile.takeIf(File::exists)?.length() ?: 0L
+            var existingBytes = targetLength(targetLocation)
             update(id) {
                 it.copy(
                     downloadedBytes = existingBytes,
@@ -348,18 +384,34 @@ private class BuiltInDownloadEngine(private val context: Context) {
             if (!append) {
                 existingBytes = 0L
             }
+            val responseMimeType = connection.contentType?.substringBefore(';').orEmpty()
+            if (existingBytes == 0L) {
+                val responseFileName = resolveDownloadFileName(
+                    url = connection.url.toString(),
+                    contentDisposition = connection.getHeaderField("Content-Disposition"),
+                    mimeType = responseMimeType.ifBlank { initialTask.mimeType }
+                )
+                if (responseFileName != initialTask.fileName) {
+                    val renamedTarget = renameTarget(targetLocation, responseFileName, id)
+                    targetLocation = renamedTarget.location
+                    update(id) {
+                        it.copy(fileName = renamedTarget.fileName, localPath = renamedTarget.location)
+                    }
+                }
+            }
             val contentLength = connection.contentLengthLong.takeIf { it >= 0L } ?: 0L
             val totalBytes = if (contentLength > 0L) existingBytes + contentLength else 0L
             update(id) {
                 it.copy(
                     downloadedBytes = existingBytes,
                     totalBytes = totalBytes.takeIf { total -> total > 0L } ?: it.totalBytes,
-                    mimeType = connection.contentType?.substringBefore(';').orEmpty().ifBlank { it.mimeType }
+                    mimeType = responseMimeType.ifBlank { it.mimeType }
                 )
             }
 
+            var completedBytes = existingBytes
             BufferedInputStream(connection.inputStream).use { input ->
-                FileOutputStream(targetFile, append).use { output ->
+                openTargetOutputStream(targetLocation, append).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var downloadedBytes = existingBytes
                     var sampleBytes = downloadedBytes
@@ -389,16 +441,18 @@ private class BuiltInDownloadEngine(private val context: Context) {
                         }
                     }
                     output.flush()
-                    update(id) {
-                        it.copy(
-                            downloadedBytes = downloadedBytes,
-                            totalBytes = totalBytes.takeIf { total -> total > 0L } ?: downloadedBytes,
-                            status = DownloadManager.STATUS_SUCCESSFUL,
-                            speedBytesPerSecond = 0L,
-                            failureReason = null
-                        )
-                    }
+                    completedBytes = downloadedBytes
                 }
+            }
+            publishTarget(targetLocation, responseMimeType.ifBlank { initialTask.mimeType })
+            update(id) {
+                it.copy(
+                    downloadedBytes = completedBytes,
+                    totalBytes = totalBytes.takeIf { total -> total > 0L } ?: completedBytes,
+                    status = DownloadManager.STATUS_SUCCESSFUL,
+                    speedBytesPerSecond = 0L,
+                    failureReason = null
+                )
             }
         } catch (_: CancellationException) {
             // pause/remove cancels the coroutine after the task state has been updated.
@@ -433,16 +487,162 @@ private class BuiltInDownloadEngine(private val context: Context) {
         return id
     }
 
-    private fun nextAvailableFile(requestedName: String): File {
+    private fun nextAvailableFile(requestedName: String, ignoredTaskId: Long? = null): File {
         val directory = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
         directory.mkdirs()
-        val safeName = requestedName.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "download" }
+        return nextAvailableFileIn(directory, requestedName, ignoredTaskId)
+    }
+
+    private fun createDownloadTarget(requestedName: String, mimeType: String?): DownloadTarget {
+        val safeName = sanitizeFileName(requestedName)
+        val relativePath = sharedDownloadRelativePath(downloadDirectoryProvider().trim())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && relativePath != null) {
+            createMediaStoreTarget(safeName, mimeType, relativePath)?.let { return it }
+        }
+        val file = nextAvailableFile(safeName)
+        return DownloadTarget(file.name, file.absolutePath)
+    }
+
+    private fun sharedDownloadRelativePath(configuredPath: String): String? {
+        if (configuredPath.isBlank()) return null
+        val externalRoot = Environment.getExternalStorageDirectory().absoluteFile
+        val configured = File(configuredPath).absoluteFile
+        val relative = runCatching {
+            configured.relativeTo(externalRoot).invariantSeparatorsPath.trim('/')
+        }.getOrNull() ?: return null
+        return relative
+            .takeIf { it == Environment.DIRECTORY_DOWNLOADS || it.startsWith("${Environment.DIRECTORY_DOWNLOADS}/") }
+            ?.let { "$it/" }
+    }
+
+    private fun createMediaStoreTarget(
+        requestedName: String,
+        mimeType: String?,
+        relativePath: String
+    ): DownloadTarget? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val fileName = nextAvailableMediaName(collection, requestedName, relativePath)
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType?.takeIf(String::isNotBlank) ?: "application/octet-stream")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = runCatching { context.contentResolver.insert(collection, values) }.getOrNull() ?: return null
+        return DownloadTarget(fileName, uri.toString())
+    }
+
+    private fun nextAvailableMediaName(collection: Uri, requestedName: String, relativePath: String): String {
+        val safeName = sanitizeFileName(requestedName)
+        val dotIndex = safeName.lastIndexOf('.')
+        val base = if (dotIndex > 0) safeName.substring(0, dotIndex) else safeName
+        val extension = if (dotIndex > 0) safeName.substring(dotIndex) else ""
+        var suffix = 0
+        var candidate = safeName
+        while (mediaNameExists(collection, candidate, relativePath) || tasks.values.any { it.fileName == candidate }) {
+            suffix += 1
+            candidate = "$base ($suffix)$extension"
+        }
+        return candidate
+    }
+
+    private fun mediaNameExists(collection: Uri, fileName: String, relativePath: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        return runCatching {
+            context.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+                arrayOf(fileName, relativePath),
+                null
+            )?.use { it.moveToFirst() } == true
+        }.getOrDefault(false)
+    }
+
+    private fun renameTarget(location: String, requestedName: String, taskId: Long): DownloadTarget {
+        val uri = Uri.parse(location)
+        if (uri.scheme == "content") {
+            val safeName = sanitizeFileName(requestedName)
+            val renamed = runCatching {
+                context.contentResolver.update(
+                    uri,
+                    ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, safeName) },
+                    null,
+                    null
+                ) > 0
+            }.getOrDefault(false)
+            return DownloadTarget(if (renamed) safeName else tasks[taskId]?.fileName.orEmpty(), location)
+        }
+
+        val oldFile = File(location)
+        oldFile.takeIf { it.exists() && it.length() == 0L }?.delete()
+        val newFile = nextAvailableFile(requestedName, ignoredTaskId = taskId)
+        return DownloadTarget(newFile.name, newFile.absolutePath)
+    }
+
+    private fun targetFileOrNull(location: String): File? =
+        location.takeUnless { Uri.parse(it).scheme == "content" }?.let(::File)
+
+    private fun targetLength(location: String): Long {
+        val uri = Uri.parse(location)
+        if (uri.scheme != "content") return File(location).takeIf(File::exists)?.length() ?: 0L
+        return runCatching {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+                descriptor.statSize.coerceAtLeast(0L)
+            }
+        }.getOrNull() ?: 0L
+    }
+
+    private fun openTargetOutputStream(location: String, append: Boolean): OutputStream {
+        val uri = Uri.parse(location)
+        if (uri.scheme != "content") return FileOutputStream(File(location), append)
+        val mode = if (append) "wa" else "w"
+        return context.contentResolver.openOutputStream(uri, mode)
+            ?: throw IOException("无法写入下载文件")
+    }
+
+    private fun publishTarget(location: String, mimeType: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val uri = Uri.parse(location)
+        if (uri.scheme != "content") return
+        runCatching {
+            context.contentResolver.update(
+                uri,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    if (mimeType.isNotBlank()) put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                },
+                null,
+                null
+            )
+        }
+    }
+
+    private fun deleteTarget(location: String) {
+        val uri = Uri.parse(location)
+        if (uri.scheme == "content") {
+            runCatching { context.contentResolver.delete(uri, null, null) }
+        } else {
+            File(location).takeIf(File::exists)?.delete()
+        }
+    }
+
+    private fun nextAvailableFileIn(
+        directory: File,
+        requestedName: String,
+        ignoredTaskId: Long? = null
+    ): File {
+        val safeName = sanitizeFileName(requestedName)
         val dotIndex = safeName.lastIndexOf('.')
         val base = if (dotIndex > 0) safeName.substring(0, dotIndex) else safeName
         val extension = if (dotIndex > 0) safeName.substring(dotIndex) else ""
         var suffix = 0
         var file = File(directory, safeName)
-        while (file.exists() || tasks.values.any { it.localPath == file.absolutePath }) {
+        while (
+            file.exists() ||
+            tasks.values.any { it.id != ignoredTaskId && it.localPath == file.absolutePath }
+        ) {
             suffix += 1
             file = File(directory, "$base ($suffix)$extension")
         }
@@ -455,13 +655,23 @@ private class BuiltInDownloadEngine(private val context: Context) {
             val array = JSONArray(serialized)
             repeat(array.length()) { index ->
                 val task = InternalTask.fromJson(array.getJSONObject(index))
-                val restored = if (task.status == DownloadManager.STATUS_RUNNING || task.status == DownloadManager.STATUS_PENDING) {
-                    task.copy(status = DownloadManager.STATUS_PAUSED, speedBytesPerSecond = 0L)
+                val decodedFileName = sanitizeFileName(decodePercentEncodedFileName(task.fileName))
+                val normalizedTask = if (decodedFileName != task.fileName) {
+                    task.copy(fileName = decodedFileName)
                 } else {
                     task
                 }
+                val restored = if (
+                    normalizedTask.status == DownloadManager.STATUS_RUNNING ||
+                    normalizedTask.status == DownloadManager.STATUS_PENDING
+                ) {
+                    normalizedTask.copy(status = DownloadManager.STATUS_PAUSED, speedBytesPerSecond = 0L)
+                } else {
+                    normalizedTask
+                }
                 tasks[restored.id] = restored
             }
+            persist()
         }
     }
 
@@ -537,9 +747,81 @@ private class BuiltInDownloadEngine(private val context: Context) {
         }
     }
 
+    private data class DownloadTarget(val fileName: String, val location: String)
+
     private companion object {
         const val TASKS_KEY = "tasks"
     }
+}
+
+private fun resolveDownloadFileName(
+    url: String,
+    contentDisposition: String?,
+    mimeType: String?
+): String {
+    val dispositionName = contentDispositionFileName(contentDisposition)
+    val urlName = Uri.parse(url).encodedPath
+        ?.substringAfterLast('/')
+        ?.takeIf(String::isNotBlank)
+        ?.let(Uri::decode)
+    val guessedName = dispositionName
+        ?: urlName?.takeIf(::hasFileExtension)
+        ?: URLUtil.guessFileName(url, null, mimeType)
+    return sanitizeFileName(guessedName)
+}
+
+private fun contentDispositionFileName(contentDisposition: String?): String? {
+    if (contentDisposition.isNullOrBlank()) return null
+
+    val extendedValue = Regex("(?i)(?:^|;)\\s*filename\\*\\s*=\\s*([^;]+)")
+        .find(contentDisposition)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+        ?.trim('"', '\'')
+    decodeExtendedFileName(extendedValue)?.takeIf(String::isNotBlank)?.let { return it }
+
+    val regularValue = Regex("(?i)(?:^|;)\\s*filename\\s*=\\s*(\"(?:\\\\.|[^\"])*\"|[^;]+)")
+        .find(contentDisposition)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+        ?.trim('"')
+        ?.replace("\\\"", "\"")
+        ?: return null
+    return decodePercentEncodedFileName(regularValue)
+}
+
+private fun decodeExtendedFileName(value: String?): String? {
+    if (value.isNullOrBlank()) return null
+    val parts = value.split('\'', limit = 3)
+    if (parts.size != 3) return decodePercentEncodedFileName(value)
+    val charset = runCatching { Charset.forName(parts[0].ifBlank { "UTF-8" }) }
+        .getOrDefault(StandardCharsets.UTF_8)
+    return runCatching { URLDecoder.decode(parts[2], charset.name()) }
+        .getOrElse { parts[2] }
+}
+
+private fun decodePercentEncodedFileName(value: String): String {
+    if ('%' !in value) return value
+    return runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8.name()) }
+        .getOrElse { value }
+}
+
+private fun hasFileExtension(value: String): Boolean {
+    val leafName = value.substringAfterLast('/').substringAfterLast('\\')
+    val dotIndex = leafName.lastIndexOf('.')
+    return dotIndex in 1 until leafName.lastIndex
+}
+
+private fun sanitizeFileName(value: String): String {
+    val leafName = value.substringAfterLast('/').substringAfterLast('\\')
+    return leafName
+        .replace(Regex("[\\u0000-\\u001f\\u007f\\\\/:*?\"<>|]"), "_")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .trimEnd('.')
+        .ifBlank { "download" }
 }
 
 private fun android.database.Cursor.longAt(index: Int): Long =

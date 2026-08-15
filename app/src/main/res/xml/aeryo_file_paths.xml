@@ -3,6 +3,9 @@
     <external-files-path
         name="internal_downloads"
         path="Download/" />
+    <external-path
+        name="shared_downloads"
+        path="Download/" />
     <files-path
         name="private_downloads"
         path="" />
